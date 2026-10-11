@@ -208,3 +208,24 @@ body.resizing iframe { pointer-events: none; }
 .msg-agent pre code.hljs { padding: 0; background: transparent; }
 .viewer-header { flex-wrap: wrap; }
 .viewer-header #viewer-title { flex: 1 1 120px; min-width: 0; }
+
+.usage {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+}
+.usage-row { display: flex; align-items: center; gap: 10px; min-height: 20px; white-space: nowrap; }
+.usage b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ctx-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  min-width: 40px;
+}
+.ctx-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.ctx-bar span.warn { background: #bf8700; }
+.ctx-bar span.full { background: var(--error); }
+.turn-usage { font-size: 11px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }

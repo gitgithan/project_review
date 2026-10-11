@@ -8,3 +8,6 @@ __pycache__/
 venv/
 .env
 .pytest_cache/
+
+# Local token/cost ledger
+usage_log.jsonl

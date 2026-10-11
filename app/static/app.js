@@ -590,6 +590,51 @@ function currentLinesSelection() {
   return { project: o.project, commit: o.commit, path: o.path, start_line: state.lineSel.start, end_line: state.lineSel.end };
 }
 
+// ------------------------------------------------------------ usage
+
+const fmtTokens = (n) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n || 0);
+const fmtCost = (u) => (u.cost_known ? "" : "≥ ") + `$${u.cost.toFixed(u.cost >= 1 ? 2 : 4)}`;
+
+function renderUsage(u) {
+  const s = u.session;
+  $("u-in").textContent = fmtTokens(s.input);
+  $("u-out").textContent = fmtTokens(s.output + s.thoughts);
+  $("u-cache").textContent = fmtTokens(s.cached);
+  $("u-cost").textContent = fmtCost(s);
+  $("u-cost").title = s.cost_known ? "" : "Some calls used a model missing from pricing.json";
+  $("u-all").textContent = fmtCost(u.all_time);
+  const t = u.turn;
+  if (t) {
+    $("u-model").textContent = t.model || "";
+    $("u-ctx").textContent = fmtTokens(t.context_tokens);
+    const max = t.context_window;
+    $("u-ctx-max").textContent = max ? fmtTokens(max) : "?";
+    const pct = max ? Math.min(100, (100 * t.context_tokens) / max) : 0;
+    const fill = $("u-ctx-fill");
+    fill.style.width = `${pct}%`;
+    fill.className = pct > 80 ? "full" : pct > 50 ? "warn" : "";
+  }
+}
+
+function resetUsage(data) {
+  renderUsage({ ...data, turn: { model: data.model, context_tokens: 0, context_window: null } });
+  $("u-ctx-max").textContent = "";
+}
+
+async function loadUsage() {
+  try {
+    resetUsage(await api(`/api/usage${state.sessionId ? `?session_id=${enc(state.sessionId)}` : ""}`));
+  } catch (_) {}
+}
+
+function turnUsageText(t) {
+  const parts = [`↑ ${fmtTokens(t.input)}`, `↓ ${fmtTokens(t.output + t.thoughts)}`];
+  if (t.cached) parts.push(`cache ${fmtTokens(t.cached)}`);
+  parts.push(`${t.calls} call${t.calls === 1 ? "" : "s"}`, t.cost_known ? `$${t.cost.toFixed(4)}` : "cost unknown");
+  return parts.join(" · ");
+}
+
 // ------------------------------------------------------------ chat
 
 function renderMarkdown(node, text) {
@@ -640,6 +685,7 @@ async function ask(question) {
   renderFiles();
 
   let text = "";
+  let lastTurn = null;
   try {
     const res = await fetch("/api/ask", {
       method: "POST",
@@ -668,6 +714,7 @@ async function ask(question) {
         else if (ev.type === "tool") tools.append(el("div", { class: "tool-call" }, `${ev.name}(${describeArgs(ev.args)})`));
         else if (ev.type === "text") { text += (text ? "\n\n" : "") + ev.text; renderMarkdown(body, text); }
         else if (ev.type === "error") agent.append(el("div", { class: "msg-error" }, ev.text));
+        else if (ev.type === "usage") { renderUsage(ev); lastTurn = ev.turn; }
         out.scrollTop = out.scrollHeight;
       }
     }
@@ -675,6 +722,7 @@ async function ask(question) {
     agent.append(el("div", { class: "msg-error" }, e.message));
   } finally {
     if (!text) body.replaceChildren();
+    if (lastTurn) agent.append(el("div", { class: "turn-usage" }, turnUsageText(lastTurn)));
     state.asking = false;
     $("ask-btn").disabled = false;
     out.scrollTop = out.scrollHeight;
@@ -689,6 +737,7 @@ function describeArgs(args) {
 
 function newChat() {
   state.sessionId = null;
+  loadUsage();
   $("output").replaceChildren(initialHint.cloneNode(true));
   wireExamples();
 }
@@ -811,3 +860,4 @@ const initialHint = document.querySelector(".hint").cloneNode(true);
 wireExamples();
 
 loadProjects().catch((e) => setStatus(e.message, true));
+loadUsage();

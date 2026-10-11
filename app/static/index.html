@@ -68,6 +68,26 @@
       <span class="spacer"></span>
       <button id="new-chat-btn" title="Start a new conversation">New chat</button>
     </div>
+    <div id="usage" class="usage">
+      <div class="usage-row">
+        <span title="Tokens this chat: input sent (↑) and output received incl. thinking (↓)">Tokens:
+          <b>↑ <span id="u-in">0</span></b> <b>↓ <span id="u-out">0</span></b></span>
+        <span title="Input tokens served from Gemini's context cache (billed at the cached rate)">Cache: <b id="u-cache">0</b></span>
+        <span class="spacer"></span>
+        <span id="u-model" class="muted"></span>
+      </div>
+      <div class="usage-row" title="Size of the last request vs. the model's context window">
+        <span>Context:</span>
+        <b id="u-ctx">0</b>
+        <span class="ctx-bar"><span id="u-ctx-fill"></span></span>
+        <span id="u-ctx-max" class="muted"></span>
+      </div>
+      <div class="usage-row">
+        <span title="Estimated cost of this chat from pricing.json">API Cost: <b id="u-cost">$0.0000</b></span>
+        <span class="spacer"></span>
+        <span class="muted" title="All chats, from usage_log.jsonl">All time: <span id="u-all">$0.00</span></span>
+      </div>
+    </div>
     <div id="output" class="output">
       <div class="hint">
         Select files or lines, then ask a question. Examples:

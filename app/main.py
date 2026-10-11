@@ -21,8 +21,9 @@ from google.adk.sessions import InMemorySessionService  # noqa: E402
 from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
+from app import usage  # noqa: E402
 from review_agent import repos  # noqa: E402
-from review_agent.agent import root_agent  # noqa: E402
+from review_agent.agent import MODEL, root_agent  # noqa: E402
 
 APP_NAME = "project_review"
 USER_ID = "reviewer"
@@ -35,6 +36,7 @@ MAX_CONTEXT_CHARS = 60_000
 app = FastAPI(title="Student Project Reviewer")
 session_service = InMemorySessionService()
 runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
+tracker = usage.Tracker()
 
 
 def _call(fn, *args, **kwargs):
@@ -176,6 +178,7 @@ async def ask(req: AskRequest):
     async def stream():
         yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
         last_error = None
+        turn = {**usage.empty(), "context_tokens": 0, "context_window": None, "model": MODEL}
         try:
             async for event in runner.run_async(
                 user_id=USER_ID, session_id=session_id, new_message=message
@@ -183,6 +186,17 @@ async def ask(req: AskRequest):
                 if event.error_message:
                     last_error = event.error_message
                     yield json.dumps({"type": "error", "text": event.error_message}) + "\n"
+                if event.usage_metadata and not event.partial:
+                    model = event.model_version or MODEL
+                    if not usage.price_for(model):
+                        model = MODEL
+                    call = usage.call_usage(model, event.usage_metadata)
+                    tracker.record(session_id, call)
+                    usage.add(turn, call)
+                    turn.update(context_tokens=call["context_tokens"],
+                                context_window=call["context_window"], model=model)
+                    yield json.dumps({"type": "usage", "turn": turn,
+                                      **tracker.summary(session_id)}) + "\n"
                 if not event.content or not event.content.parts:
                     continue
                 for part in event.content.parts:
@@ -200,6 +214,11 @@ async def ask(req: AskRequest):
         yield json.dumps({"type": "done"}) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@app.get("/api/usage")
+def get_usage(session_id: str | None = None):
+    return {"model": MODEL, **tracker.summary(session_id)}
 
 
 # ---------------------------------------------------------------- UI

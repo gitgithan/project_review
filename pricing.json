@@ -1,0 +1,74 @@
+{
+  "_comment": [
+    "USD per 1M tokens, Gemini on Vertex AI, Standard tier (not Priority/Flex/Batch).",
+    "Source: https://cloud.google.com/vertex-ai/generative-ai/pricing (checked 2026-10-11).",
+    "Model ids match by longest prefix: 'gemini-2.5-flash-001' uses 'gemini-2.5-flash'.",
+    "Top-level rates are for the 'global' location; 'non_global' overrides apply to",
+    "regional locations such as us-central1 (GOOGLE_CLOUD_LOCATION).",
+    "'long_context' applies when one request's prompt exceeds threshold_tokens.",
+    "'promotions' apply until the given date (inclusive).",
+    "Thinking tokens are billed as output. Unknown models show tokens but no cost."
+  ],
+  "models": {
+    "gemini-3.1-pro-preview": {
+      "input": 2.00, "output": 12.00, "cached_input": 0.20,
+      "long_context": { "threshold_tokens": 200000, "input": 4.00, "output": 18.00, "cached_input": 0.40 },
+      "context_window": 1048576
+    },
+    "gemini-3.8-flash": {
+      "input": 1.50, "output": 7.50, "cached_input": 0.15,
+      "non_global": { "input": 1.65, "output": 8.25, "cached_input": 0.165 },
+      "promotions": [
+        { "until": "2026-12-31", "input": 0.75, "output": 3.75, "cached_input": 0.075,
+          "non_global": { "input": 0.825, "output": 4.125, "cached_input": 0.0825 } }
+      ],
+      "context_window": 1048576
+    },
+    "gemini-3.7-flash": {
+      "input": 1.50, "output": 7.50, "cached_input": 0.15,
+      "non_global": { "input": 1.65, "output": 8.25, "cached_input": 0.165 },
+      "promotions": [
+        { "until": "2026-12-31", "input": 0.75, "output": 3.75, "cached_input": 0.075,
+          "non_global": { "input": 0.825, "output": 4.125, "cached_input": 0.0825 } }
+      ],
+      "context_window": 1048576
+    },
+    "gemini-3.6-flash": {
+      "input": 1.50, "output": 7.50, "cached_input": 0.15,
+      "non_global": { "input": 1.65, "output": 8.25, "cached_input": 0.165 },
+      "promotions": [
+        { "until": "2026-12-31", "input": 0.75, "output": 3.75, "cached_input": 0.075,
+          "non_global": { "input": 0.825, "output": 4.125, "cached_input": 0.0825 } }
+      ],
+      "context_window": 1048576
+    },
+    "gemini-3.5-flash": {
+      "input": 1.50, "output": 9.00, "cached_input": 0.15,
+      "non_global": { "input": 1.65, "output": 9.90, "cached_input": 0.165 },
+      "context_window": 1048576
+    },
+    "gemini-3.5-flash-lite": {
+      "input": 0.30, "output": 2.50, "cached_input": 0.03,
+      "non_global": { "input": 0.33, "output": 2.75, "cached_input": 0.033 },
+      "context_window": 1048576
+    },
+    "gemini-3.1-flash-lite": {
+      "input": 0.25, "output": 1.50, "cached_input": 0.025,
+      "non_global": { "input": 0.275, "output": 1.65, "cached_input": 0.0275 },
+      "context_window": 1048576
+    },
+    "gemini-2.5-pro": {
+      "input": 1.25, "output": 10.00, "cached_input": 0.125,
+      "long_context": { "threshold_tokens": 200000, "input": 2.50, "output": 15.00, "cached_input": 0.25 },
+      "context_window": 1048576
+    },
+    "gemini-2.5-flash": {
+      "input": 0.30, "output": 2.50, "cached_input": 0.03,
+      "context_window": 1048576
+    },
+    "gemini-2.5-flash-lite": {
+      "input": 0.10, "output": 0.40, "cached_input": 0.01,
+      "context_window": 1048576
+    }
+  }
+}

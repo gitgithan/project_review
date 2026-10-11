@@ -19,6 +19,9 @@ A local web app for reviewing student git projects with a Gemini agent built on
 - Syntax highlighting (highlight.js, served locally) in the file viewer, diffs and
   code blocks in answers; the language comes from the file name or is auto-detected.
 - Type a question and the agent answers in the output pane, showing the tools it used.
+- Token use and cost like Cline: the chat header shows tokens sent ↑ / received ↓,
+  cached tokens, a context-window bar, this chat's API cost and the all-time total;
+  each answer shows its own tokens, model calls and cost.
 - Drag the borders between the four columns to resize them (double-click a border to
   reset it); widths are remembered in your browser.
 
@@ -64,6 +67,19 @@ Open http://localhost:8000.
 | `PROJECTS_DIR` | `./projects` | Where student repos are cloned |
 | `MAX_PREVIEW_BYTES` | `524288` | Files above this size are not previewed or sent to the model |
 | `MAX_DIFF_BYTES` | `524288` | Diffs above this size are not shown |
+| `PRICING_FILE` | `./pricing.json` | Gemini prices used for cost estimates |
+| `USAGE_LOG` | `./usage_log.jsonl` | Ledger of every model call (git-ignored), used for the all-time total |
+
+### Token and cost tracking
+
+Costs are estimates computed from the token counts Gemini returns and the rates in
+`pricing.json` (USD per 1M tokens, Vertex AI Standard tier, copied from the
+[Vertex AI pricing page](https://cloud.google.com/vertex-ai/generative-ai/pricing)).
+It handles cached input, thinking tokens (billed as output), the >200K long-context
+tier, global vs. regional rates (from `GOOGLE_CLOUD_LOCATION`) and dated promotions.
+Prices change: update `pricing.json` when Google does. A model missing from the
+file still shows tokens, and its cost shows as "cost unknown" / "≥ $…".
+Your Cloud Billing report remains the source of truth.
 
 Private repos: use an SSH URL (`git@github.com:student/repo.git`) or an HTTPS URL
 your local git credential helper can authenticate. The app never prompts for passwords.
