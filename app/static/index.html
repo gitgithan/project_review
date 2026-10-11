@@ -1,1 +1,79 @@
-<!doctype html><title>placeholder</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Review</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+</head>
+<body>
+<div class="layout">
+  <!-- Projects and commit history -->
+  <aside class="pane sidebar">
+    <form id="clone-form" class="clone">
+      <input id="clone-url" type="text" placeholder="Student project git URL" autocomplete="off" required>
+      <button type="submit" id="clone-btn">Clone</button>
+    </form>
+    <div id="clone-status" class="status"></div>
+
+    <h3>Projects</h3>
+    <ul id="projects" class="list"></ul>
+
+    <h3>Commits <span id="commit-count" class="muted"></span></h3>
+    <ul id="commits" class="list commits"></ul>
+  </aside>
+
+  <!-- Files of the selected commit -->
+  <section class="pane files-pane">
+    <div id="commit-header" class="commit-header muted">Select a project and a commit.</div>
+    <div class="file-tabs">
+      <button data-mode="changed" class="tab active">Changed</button>
+      <button data-mode="all" class="tab">All files</button>
+      <input id="file-filter" type="search" placeholder="Filter">
+    </div>
+    <ul id="files" class="list files"></ul>
+  </section>
+
+  <!-- File viewer -->
+  <section class="pane viewer-pane">
+    <div class="viewer-header">
+      <span id="viewer-title" class="muted">No file open</span>
+      <span class="spacer"></span>
+      <span class="view-tabs">
+        <button data-view="content" class="tab active">Content</button>
+        <button data-view="diff" class="tab">Diff</button>
+      </span>
+      <button id="add-lines-btn" disabled title="Click a line number, shift-click to extend, or drag-select code">Ask about lines</button>
+      <button id="add-file-btn" disabled>Ask about file</button>
+    </div>
+    <div id="viewer" class="viewer"></div>
+  </section>
+
+  <!-- Agent chat -->
+  <section class="pane chat-pane">
+    <div class="chat-header">
+      <strong>Ask the reviewer</strong>
+      <span class="spacer"></span>
+      <button id="new-chat-btn" title="Start a new conversation">New chat</button>
+    </div>
+    <div id="output" class="output">
+      <div class="hint">
+        Select files or lines, then ask a question. Examples:
+        <button class="example">What is this function for?</button>
+        <button class="example">What is this file for?</button>
+        <button class="example">Are these 2 files versions of each other?</button>
+        <button class="example">Summarise what changed in this commit.</button>
+      </div>
+    </div>
+    <div id="selections" class="selections"></div>
+    <form id="ask-form" class="ask">
+      <textarea id="question" rows="3" placeholder="Type your question (Ctrl/Cmd+Enter to send)"></textarea>
+      <button type="submit" id="ask-btn">Ask</button>
+    </form>
+  </section>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
