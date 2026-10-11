@@ -165,11 +165,52 @@ def resolve_commit(name: str, rev: str) -> str:
     return sha
 
 
-def list_commits(name: str, limit: int = 500, all_refs: bool = True) -> list[dict]:
+def list_branches(name: str) -> list[dict]:
+    """Branches of the student's remote (origin), default branch first.
+
+    Falls back to local branches for a clone without remote-tracking refs.
+    """
+    path = project_path(name)
+    default = _git(path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD",
+                   check=False).decode().strip().removeprefix("origin/")
+    fmt = "%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(subject)"
+    branches = []
+    for prefix in ("refs/remotes/origin/", "refs/heads/"):
+        out = _git(path, "for-each-ref", f"--format={fmt}", "--sort=-committerdate", prefix)
+        for line in out.decode("utf-8", "replace").splitlines():
+            ref, sha, date, subject = line.split("\0", 3)
+            short_name = ref.removeprefix(prefix)
+            if short_name == "HEAD":
+                continue
+            branches.append({
+                "name": short_name, "ref": ref, "sha": sha, "date": date,
+                "subject": subject, "default": short_name == default,
+            })
+        if branches:
+            break
+    if not default and branches:
+        head = _git(path, "rev-parse", "--abbrev-ref", "HEAD", check=False).decode().strip()
+        for b in branches:
+            b["default"] = b["name"] == head
+    branches.sort(key=lambda b: not b["default"])  # stable: keeps recency order otherwise
+    return branches
+
+
+def _branch_ref(name: str, branch: str) -> str:
+    for b in list_branches(name):
+        if b["name"] == branch:
+            return b["ref"]
+    raise RepoError(f"Unknown branch: {branch}")
+
+
+def list_commits(name: str, limit: int = 500, branch: str | None = None) -> list[dict]:
+    """Commits newest first: of one branch, or of all branches when branch is None."""
     path = project_path(name)
     fmt = "%x1f".join(["%H", "%h", "%an", "%ae", "%aI", "%s", "%P", "%D"]) + "%x1e"
     args = ["log", f"--max-count={int(limit)}", "--date-order", f"--format={fmt}"]
-    if all_refs:
+    if branch:
+        args += [_branch_ref(name, branch), "--"]
+    else:
         args.append("--all")
     out = _git(path, *args, check=False).decode("utf-8", "replace")
     commits = []

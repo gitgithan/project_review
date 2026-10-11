@@ -78,3 +78,32 @@ def test_rejects_bad_urls(upstream, url):
 def test_rejects_bad_project_names(upstream, name):
     with pytest.raises(repos.RepoError):
         repos.project_path(name)
+
+
+def test_branches(upstream):
+    _git(upstream, "checkout", "-q", "-b", "feature/login")
+    (upstream / "login.py").write_text("def login(): pass\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-qm", "add login")
+    _git(upstream, "checkout", "-q", "main")
+    repos.clone_project(f"file://{upstream}")
+
+    branches = repos.list_branches("student")
+    assert [b["name"] for b in branches] == ["main", "feature/login"]
+    assert branches[0]["default"] and not branches[1]["default"]
+
+    main = [c["subject"] for c in repos.list_commits("student", branch="main")]
+    feature = [c["subject"] for c in repos.list_commits("student", branch="feature/login")]
+    assert main == ["second", "first"]
+    assert feature == ["add login", "second", "first"]
+    assert len(repos.list_commits("student")) == 3  # all branches
+    tip = repos.list_commits("student", branch="feature/login")[0]["sha"]
+    assert repos.read_file("student", tip, "login.py").status == "ok"
+    with pytest.raises(repos.RepoError, match="Unknown branch"):
+        repos.list_commits("student", branch="nope")
+
+    # New branches appear and deleted ones disappear after Update.
+    _git(upstream, "branch", "-q", "hotfix")
+    _git(upstream, "branch", "-q", "-D", "feature/login")
+    repos.update_project("student")
+    assert sorted(b["name"] for b in repos.list_branches("student")) == ["hotfix", "main"]

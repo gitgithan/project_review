@@ -74,9 +74,14 @@ def delete(name: str):
     return {"ok": True}
 
 
+@app.get("/api/projects/{name}/branches")
+def branches(name: str):
+    return _call(repos.list_branches, name)
+
+
 @app.get("/api/projects/{name}/commits")
-def commits(name: str, limit: int = 500):
-    return _call(repos.list_commits, name, limit)
+def commits(name: str, limit: int = 500, branch: str | None = None):
+    return _call(repos.list_commits, name, limit, branch or None)
 
 
 @app.get("/api/projects/{name}/commits/{sha}")
@@ -114,6 +119,7 @@ class AskRequest(BaseModel):
     question: str
     session_id: str | None = None
     project: str | None = None
+    branch: str | None = None
     commit: str | None = None
     selections: list[Selection] = Field(default_factory=list)
 
@@ -142,6 +148,8 @@ def _build_message(req: AskRequest) -> str:
     ctx = []
     if req.project:
         ctx.append(f"Viewing project: {req.project}")
+    if req.branch:
+        ctx.append(f"Viewing branch: {req.branch}")
     if req.commit:
         ctx.append(f"Viewing commit: {req.commit}")
     if req.selections:

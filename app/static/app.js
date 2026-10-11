@@ -3,6 +3,8 @@
 const state = {
   projects: [],
   project: null,       // selected project name
+  branches: [],
+  branch: "",          // selected branch name; "" = all branches
   commits: [],
   commit: null,        // selected commit sha
   detail: null,        // commit detail (message + changes)
@@ -117,29 +119,27 @@ function setStatus(text, isError = false) {
 
 // ------------------------------------------------------------ projects
 
+const LAST_PROJECT_KEY = "project-review:last-project";
+const ALL_BRANCHES = "";
+
 async function loadProjects() {
   state.projects = await api("/api/projects");
   renderProjects();
 }
 
 function renderProjects() {
-  const ul = $("projects");
-  ul.replaceChildren();
-  if (!state.projects.length) {
-    ul.append(el("li", { class: "muted" }, "No projects yet. Paste a git URL above."));
-    return;
-  }
+  const sel = $("project-select");
+  sel.replaceChildren();
+  const has = state.projects.length > 0;
+  if (!has) sel.append(el("option", { value: "" }, "No projects yet: paste a git URL above"));
   for (const p of state.projects) {
-    const li = el(
-      "li",
-      { class: p.name === state.project ? "active" : "", title: p.url, onclick: () => selectProject(p.name) },
-      el("span", { class: "pname" }, p.name),
-      el("span", { class: "pmeta", title: "commits" }, `${p.commit_count}`),
-      el("button", { title: "Update: fetch latest commits", onclick: (e) => { e.stopPropagation(); updateProject(p.name, e.target); } }, "Update"),
-      el("button", { title: "Remove this clone", onclick: (e) => { e.stopPropagation(); deleteProject(p.name); } }, "✕"),
-    );
-    ul.append(li);
+    const opt = el("option", { value: p.name, title: p.url }, `${p.name} · ${p.commit_count} commits`);
+    sel.append(opt);
   }
+  sel.value = state.project || "";
+  sel.disabled = !has;
+  $("update-btn").disabled = !state.project;
+  $("remove-btn").disabled = !state.project;
 }
 
 async function cloneProject(url) {
@@ -158,55 +158,118 @@ async function cloneProject(url) {
   }
 }
 
-async function updateProject(name, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+async function updateProject() {
+  const name = state.project;
+  if (!name) return;
+  const btn = $("update-btn");
+  btn.disabled = true;
+  btn.textContent = "…";
   setStatus(`Updating ${name}…`);
   try {
     const p = await api(`/api/projects/${enc(name)}/update`, { method: "POST" });
     setStatus(p.new_commits ? `${name}: ${p.new_commits} new commit(s).` : `${name} is up to date.`);
     await loadProjects();
-    if (state.project === name) await loadCommits();
+    if (state.project === name) {
+      await loadBranches(state.branch);
+      await loadCommits();
+      const tip = state.commits[0]?.sha;
+      if (tip && !state.commits.some((c) => c.sha === state.commit)) await selectCommit(tip);
+    }
   } catch (e) {
     setStatus(e.message, true);
+  } finally {
+    btn.textContent = "Update";
     renderProjects();
   }
 }
 
-async function deleteProject(name) {
-  if (!confirm(`Remove the local clone of ${name}?`)) return;
+async function deleteProject() {
+  const name = state.project;
+  if (!name || !confirm(`Remove the local clone of ${name}?`)) return;
   try {
     await api(`/api/projects/${enc(name)}`, { method: "DELETE" });
     state.selections = state.selections.filter((s) => s.project !== name);
     renderSelections();
-    if (state.project === name) {
-      Object.assign(state, { project: null, commits: [], commit: null, detail: null, files: [], open: null });
-      renderCommits(); renderCommitHeader(); renderFiles(); renderViewer();
-    }
+    Object.assign(state, { project: null, branch: ALL_BRANCHES, branches: [], commits: [], commit: null, detail: null, files: [], open: null });
     await loadProjects();
+    if (state.projects.length) {
+      await selectProject(state.projects[0].name);
+    } else {
+      renderBranches(); renderCommits(); renderCommitHeader(); renderFiles(); renderViewer();
+    }
   } catch (e) {
     setStatus(e.message, true);
   }
 }
 
 async function selectProject(name) {
-  if (state.project !== name) state.folderOpen = new Map();
+  if (state.project !== name) {
+    state.folderOpen = new Map();
+    state.commit = null;
+  }
   state.project = name;
+  try { localStorage.setItem(LAST_PROJECT_KEY, name); } catch (_) {}
   renderProjects();
+  await loadBranches();
   await loadCommits();
   if (state.commits.length && !state.commits.some((c) => c.sha === state.commit)) {
     await selectCommit(state.commits[0].sha);
   }
 }
 
+// ------------------------------------------------------------ branches
+
+// Load the project's branches and pick `keep` if it still exists, else the
+// default branch.
+async function loadBranches(keep) {
+  const project = state.project;
+  let branches = [];
+  try {
+    branches = await api(`/api/projects/${enc(project)}/branches`);
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+  if (project !== state.project) return; // another project was picked meanwhile
+  state.branches = branches;
+  const names = state.branches.map((b) => b.name);
+  if (keep !== undefined && (keep === ALL_BRANCHES || names.includes(keep))) state.branch = keep;
+  else state.branch = (state.branches.find((b) => b.default) || state.branches[0])?.name ?? ALL_BRANCHES;
+  renderBranches();
+}
+
+function renderBranches() {
+  const sel = $("branch-select");
+  sel.replaceChildren();
+  for (const b of state.branches || []) {
+    sel.append(el("option", { value: b.name, title: `${short(b.sha)} · ${fmtDate(b.date)} · ${b.subject}` },
+      b.default ? `${b.name} (default)` : b.name));
+  }
+  if (state.project) sel.append(el("option", { value: ALL_BRANCHES }, "All branches"));
+  sel.value = state.branch ?? ALL_BRANCHES;
+  sel.disabled = !state.project;
+}
+
+async function selectBranch(branch) {
+  state.branch = branch;
+  await loadCommits();
+  // Show the branch tip, so switching branches previews that branch's files.
+  if (state.branch === branch && state.commits.length) await selectCommit(state.commits[0].sha);
+}
+
 // ------------------------------------------------------------ commits
 
 async function loadCommits() {
+  const { project, branch } = state;
+  const q = branch ? `?branch=${enc(branch)}` : "";
+  let commits = [];
   try {
-    state.commits = await api(`/api/projects/${enc(state.project)}/commits`);
+    commits = await api(`/api/projects/${enc(project)}/commits${q}`);
   } catch (e) {
-    state.commits = [];
     setStatus(e.message, true);
   }
+  // Drop the response if the user switched project/branch while it loaded.
+  if (project !== state.project || branch !== state.branch) return;
+  state.commits = commits;
   renderCommits();
 }
 
@@ -234,15 +297,16 @@ async function selectCommit(sha) {
   renderCommits();
   renderViewer();
   const base = `/api/projects/${enc(state.project)}/commits/${sha}`;
+  let detail = null;
+  let files = [];
   try {
-    const [detail, files] = await Promise.all([api(base), api(`${base}/files`)]);
-    state.detail = detail;
-    state.files = files;
+    [detail, files] = await Promise.all([api(base), api(`${base}/files`)]);
   } catch (e) {
-    state.detail = null;
-    state.files = [];
     setStatus(e.message, true);
   }
+  if (state.commit !== sha) return; // a different commit was picked meanwhile
+  state.detail = detail;
+  state.files = files;
   renderCommitHeader();
   renderFiles();
 }
@@ -690,7 +754,7 @@ async function ask(question) {
     const res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, session_id: state.sessionId, project: state.project, commit: state.commit, selections }),
+      body: JSON.stringify({ question, session_id: state.sessionId, project: state.project, branch: state.branch || null, commit: state.commit, selections }),
     });
     if (!res.ok) {
       let detail = res.statusText;
@@ -823,6 +887,10 @@ function initResizers() {
 initResizers();
 
 $("clone-form").addEventListener("submit", (e) => { e.preventDefault(); cloneProject($("clone-url").value); });
+$("project-select").addEventListener("change", (e) => { if (e.target.value) selectProject(e.target.value); });
+$("branch-select").addEventListener("change", (e) => selectBranch(e.target.value));
+$("update-btn").addEventListener("click", updateProject);
+$("remove-btn").addEventListener("click", deleteProject);
 document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((t) =>
   t.addEventListener("click", () => {
     state.fileMode = t.dataset.mode;
@@ -859,5 +927,14 @@ $("new-chat-btn").addEventListener("click", newChat);
 const initialHint = document.querySelector(".hint").cloneNode(true);
 wireExamples();
 
-loadProjects().catch((e) => setStatus(e.message, true));
+async function init() {
+  await loadProjects();
+  renderBranches();
+  let last = null;
+  try { last = localStorage.getItem(LAST_PROJECT_KEY); } catch (_) {}
+  const start = state.projects.find((p) => p.name === last) || state.projects[0];
+  if (start) await selectProject(start.name);
+}
+
+init().catch((e) => setStatus(e.message, true));
 loadUsage();

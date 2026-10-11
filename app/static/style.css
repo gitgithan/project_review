@@ -101,10 +101,19 @@ body.resizing iframe { pointer-events: none; }
 .list li:hover { background: var(--accent-bg); }
 .list li.active { background: var(--accent-bg); outline: 1px solid var(--accent); }
 
-#projects li { display: flex; align-items: center; gap: 6px; }
-#projects .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#projects .pmeta { font-size: 11px; color: var(--muted); }
-#projects button { padding: 1px 6px; font-size: 12px; }
+.field-label { display: block; margin: 12px 0 4px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.picker { display: flex; gap: 6px; }
+.picker select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.picker button { padding: 2px 8px; font-size: 12px; }
 
 .commits li .subject { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .commits li .meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

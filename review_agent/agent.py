@@ -43,17 +43,32 @@ def list_projects() -> dict:
 
 
 @_safe
-def list_commits(project: str, limit: int = 50) -> dict:
-    """Lists the most recent commits of a project (all branches), newest first.
+def list_branches(project: str) -> dict:
+    """Lists a project's branches (default branch first) with their latest commit.
 
     Args:
         project: Project name as shown by list_projects.
+
+    Returns:
+        dict with "branches": name, sha, date, subject, default.
+    """
+    return {"branches": repos.list_branches(project)}
+
+
+@_safe
+def list_commits(project: str, branch: str = "", limit: int = 50) -> dict:
+    """Lists the most recent commits of a project, newest first.
+
+    Args:
+        project: Project name as shown by list_projects.
+        branch: Branch name from list_branches; empty for all branches.
         limit: Maximum number of commits to return.
 
     Returns:
         dict with "commits": sha, short, author, date, subject, parents, refs.
     """
-    return {"commits": repos.list_commits(project, limit=min(max(limit, 1), 500))}
+    commits = repos.list_commits(project, limit=min(max(limit, 1), 500), branch=branch or None)
+    return {"commits": commits}
 
 
 @_safe
@@ -173,8 +188,8 @@ git. Answer the teacher's questions about the code: what a function or file is
 for, how pieces fit together, how the project evolved across commits, whether
 two files are versions of each other, code quality, and similar.
 
-Each message may start with a [Context] block listing the project, the commit
-the teacher is viewing and any files or line ranges they selected. The
+Each message may start with a [Context] block listing the project, branch and
+commit the teacher is viewing and any files or line ranges they selected. The
 selected lines are included verbatim; use the tools to read more of the file,
 related files, call sites (search_code), other commits, or diffs whenever that
 helps you answer accurately. Always look at the code before answering rather
@@ -199,6 +214,7 @@ root_agent = Agent(
     instruction=INSTRUCTION,
     tools=[
         list_projects,
+        list_branches,
         list_commits,
         get_commit,
         list_files,

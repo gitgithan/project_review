@@ -23,8 +23,17 @@
     </form>
     <div id="clone-status" class="status"></div>
 
-    <h3>Projects</h3>
-    <ul id="projects" class="list"></ul>
+    <label class="field-label" for="project-select">Project</label>
+    <div class="picker">
+      <select id="project-select"></select>
+      <button id="update-btn" title="Update: fetch the latest commits and branches">Update</button>
+      <button id="remove-btn" title="Remove this project's local clone">✕</button>
+    </div>
+
+    <label class="field-label" for="branch-select">Branch</label>
+    <div class="picker">
+      <select id="branch-select"></select>
+    </div>
 
     <h3>Commits <span id="commit-count" class="muted"></span></h3>
     <ul id="commits" class="list commits"></ul>

@@ -7,7 +7,10 @@ A local web app for reviewing student git projects with a Gemini agent built on
   Clone as many as you like; they all live side by side.
 - **Update** on a project fetches the latest commits. Clones are read-only mirrors,
   so the checkout is simply reset to the remote branch (force-pushes are fine).
-- Browse commit history (all branches), see each commit's message and changed files,
+- Pick the project from a dropdown (it remembers the last one) and switch **branches**
+  with the branch dropdown, default branch first, or "All branches". Switching
+  branches jumps to that branch's latest commit so you preview its files.
+- Browse commit history, see each commit's message and changed files,
   and open any file as it was at that commit, or its diff. Files are shown in
   folders: folders with fewer than 10 files start expanded, bigger ones collapsed
   (+ / − expand or collapse all; filtering expands matches).
@@ -93,7 +96,7 @@ review_agent/agent.py  ADK Agent (root_agent) with read-only tools
 review_agent/repos.py  git helpers: clone, update, log, ls-tree, cat-file, diff, grep
 ```
 
-The agent's tools are read-only: `list_projects`, `list_commits`, `get_commit`,
+The agent's tools are read-only: `list_projects`, `list_branches`, `list_commits` (per branch), `get_commit`,
 `list_files`, `read_file` (numbered line ranges), `get_file_diff`,
 `compare_files` (similarity score + unified diff, across projects/commits) and
 `search_code` (git grep). Your highlighted lines are inlined into the question;
