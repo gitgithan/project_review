@@ -13,7 +13,7 @@ from google.adk.agents import Agent
 
 from . import repos
 
-MODEL = os.environ.get("REVIEW_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("REVIEW_MODEL", "gemini-3.1-flash-lite")
 
 # Cap how much file text a single tool call returns to the model.
 MAX_TOOL_LINES = 2000

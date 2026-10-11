@@ -63,7 +63,7 @@ Open http://localhost:8000.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `REVIEW_MODEL` | `gemini-2.5-flash` | Gemini model used by the agent (e.g. `gemini-2.5-pro`) |
+| `REVIEW_MODEL` | `gemini-3.1-flash-lite` | Gemini model used by the agent (e.g. `gemini-3.5-flash`, `gemini-3.1-pro-preview`) |
 | `PROJECTS_DIR` | `./projects` | Where student repos are cloned |
 | `MAX_PREVIEW_BYTES` | `524288` | Files above this size are not previewed or sent to the model |
 | `MAX_DIFF_BYTES` | `524288` | Diffs above this size are not shown |
