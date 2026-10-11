@@ -8,6 +8,7 @@ const state = {
   detail: null,        // commit detail (message + changes)
   files: [],           // all files in the commit tree
   fileMode: "changed", // "changed" | "all"
+  expanded: new Set(), // expanded folder paths in the file tree
   open: null,          // {project, commit, path, status, change}
   view: "content",     // "content" | "diff"
   lineSel: null,       // {start, end} in the open file
@@ -130,6 +131,7 @@ async function deleteProject(name) {
 }
 
 async function selectProject(name) {
+  if (state.project !== name) state.expanded = new Set();
   state.project = name;
   renderProjects();
   await loadCommits();
@@ -205,49 +207,131 @@ function renderCommitHeader() {
 
 // ------------------------------------------------------------ files
 
+function fileRows() {
+  const sizes = new Map(state.files.map((f) => [f.path, f.size]));
+  if (state.fileMode === "changed") {
+    return state.detail.changes.map((c) => ({ path: c.path, status: c.status, change: c, size: sizes.get(c.path) }));
+  }
+  const changed = new Map(state.detail.changes.map((c) => [c.path, c]));
+  return state.files.map((f) => ({ path: f.path, size: f.size, status: changed.get(f.path)?.status || "", change: changed.get(f.path) }));
+}
+
+// Build a folder tree from flat paths. Folders with a single subfolder and no
+// files are merged ("src/main/java") so deep paths need fewer clicks.
+function buildTree(rows) {
+  const root = { name: "", path: "", dirs: new Map(), files: [] };
+  for (const r of rows) {
+    const parts = r.path.split("/");
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      if (!node.dirs.has(part)) {
+        node.dirs.set(part, { name: part, path: node.path ? `${node.path}/${part}` : part, dirs: new Map(), files: [] });
+      }
+      node = node.dirs.get(part);
+    }
+    node.files.push({ ...r, name: parts[parts.length - 1] });
+  }
+  const finish = (node) => {
+    for (const d of node.dirs.values()) finish(d);
+    node.count = node.files.length + [...node.dirs.values()].reduce((n, d) => n + d.count, 0);
+    node.changed = node.files.filter((f) => f.status).length + [...node.dirs.values()].reduce((n, d) => n + d.changed, 0);
+  };
+  const compress = (node) => {
+    for (const [key, d] of node.dirs) {
+      let cur = d;
+      while (cur.files.length === 0 && cur.dirs.size === 1) {
+        const only = [...cur.dirs.values()][0];
+        cur = { ...only, name: `${cur.name}/${only.name}` };
+      }
+      node.dirs.set(key, cur);
+      compress(cur);
+    }
+  };
+  compress(root);
+  finish(root);
+  return root;
+}
+
+function allDirPaths(node, out = []) {
+  for (const d of node.dirs.values()) { out.push(d.path); allDirPaths(d, out); }
+  return out;
+}
+
+function setAllFolders(expand) {
+  if (!state.detail) return;
+  state.expanded = expand ? new Set(allDirPaths(buildTree(fileRows()))) : new Set();
+  renderFiles();
+}
+
 function renderFiles() {
   const ul = $("files");
   ul.replaceChildren();
   if (!state.detail) return;
   const filter = $("file-filter").value.trim().toLowerCase();
-  const sizes = new Map(state.files.map((f) => [f.path, f.size]));
-  let rows;
-  if (state.fileMode === "changed") {
-    rows = state.detail.changes.map((c) => ({ path: c.path, status: c.status, change: c, size: sizes.get(c.path) }));
-  } else {
-    const changed = new Map(state.detail.changes.map((c) => [c.path, c]));
-    rows = state.files.map((f) => ({ path: f.path, size: f.size, status: changed.get(f.path)?.status || "", change: changed.get(f.path) }));
-  }
+  let rows = fileRows();
   if (filter) rows = rows.filter((r) => r.path.toLowerCase().includes(filter));
   if (!rows.length) {
     ul.append(el("li", { class: "muted" }, state.fileMode === "changed" ? "No file changes (merge or empty commit)." : "No files."));
     return;
   }
-  for (const r of rows) {
-    const key = selKey({ project: state.project, commit: state.commit, path: r.path });
-    const checkbox = el("input", {
-      type: "checkbox",
-      title: "Include this file in the next question",
-      onclick: (e) => {
-        e.stopPropagation();
-        if (e.target.checked) addSelection({ project: state.project, commit: state.commit, path: r.path });
-        else removeSelection(key);
-      },
-    });
-    checkbox.checked = state.selections.some((s) => selKey(s) === key);
-    if (r.status === "D") checkbox.disabled = true;
-    const isOpen = state.open && state.open.path === r.path && state.open.commit === state.commit;
-    ul.append(
-      el(
-        "li",
-        { class: isOpen ? "active" : "", title: r.change?.old_path ? `${r.change.old_path} → ${r.path}` : r.path, onclick: () => openFile(r.path, r.change) },
-        checkbox,
-        el("span", { class: `badge ${r.status}` }, r.status),
-        el("span", { class: "fpath" }, `‎${r.path}`),
-        el("span", { class: "fsize" }, r.size !== undefined ? fmtSize(r.size) : ""),
-      ),
-    );
-  }
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const walk = (node, depth) => {
+    for (const d of [...node.dirs.values()].sort(byName)) {
+      // Folders start collapsed; while filtering, show every match.
+      const open = !!filter || state.expanded.has(d.path);
+      const info = state.fileMode === "all" && d.changed ? `${d.changed}/${d.count}` : `${d.count}`;
+      ul.append(
+        el(
+          "li",
+          {
+            class: "folder",
+            style: `padding-left:${6 + depth * 14}px`,
+            title: d.path,
+            onclick: () => {
+              if (filter) return;
+              state.expanded.has(d.path) ? state.expanded.delete(d.path) : state.expanded.add(d.path);
+              renderFiles();
+            },
+          },
+          el("span", { class: "caret" }, open ? "▾" : "▸"),
+          el("span", { class: "fpath" }, `${d.name}/`),
+          el("span", { class: "fsize", title: state.fileMode === "all" ? "changed / files" : "files" }, info),
+        ),
+      );
+      if (open) walk(d, depth + 1);
+    }
+    for (const f of [...node.files].sort(byName)) ul.append(fileRow(f, depth));
+  };
+  walk(buildTree(rows), 0);
+}
+
+function fileRow(r, depth) {
+  const key = selKey({ project: state.project, commit: state.commit, path: r.path });
+  const checkbox = el("input", {
+    type: "checkbox",
+    title: "Include this file in the next question",
+    onclick: (e) => {
+      e.stopPropagation();
+      if (e.target.checked) addSelection({ project: state.project, commit: state.commit, path: r.path });
+      else removeSelection(key);
+    },
+  });
+  checkbox.checked = state.selections.some((s) => selKey(s) === key);
+  if (r.status === "D") checkbox.disabled = true;
+  const isOpen = state.open && state.open.path === r.path && state.open.commit === state.commit;
+  return el(
+    "li",
+    {
+      class: isOpen ? "active" : "",
+      style: `padding-left:${6 + depth * 14 + 14}px`,
+      title: r.change?.old_path ? `${r.change.old_path} → ${r.path}` : r.path,
+      onclick: () => openFile(r.path, r.change),
+    },
+    checkbox,
+    el("span", { class: `badge ${r.status}` }, r.status),
+    el("span", { class: "fpath" }, r.name),
+    el("span", { class: "fsize" }, r.size !== undefined ? fmtSize(r.size) : ""),
+  );
 }
 
 // ------------------------------------------------------------ viewer
@@ -534,14 +618,16 @@ function wireExamples() {
 // ------------------------------------------------------------ wiring
 
 $("clone-form").addEventListener("submit", (e) => { e.preventDefault(); cloneProject($("clone-url").value); });
-document.querySelectorAll(".file-tabs .tab").forEach((t) =>
+document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((t) =>
   t.addEventListener("click", () => {
     state.fileMode = t.dataset.mode;
-    document.querySelectorAll(".file-tabs .tab").forEach((x) => x.classList.toggle("active", x === t));
+    document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((x) => x.classList.toggle("active", x === t));
     renderFiles();
   }),
 );
 $("file-filter").addEventListener("input", renderFiles);
+$("expand-all").addEventListener("click", () => setAllFolders(true));
+$("collapse-all").addEventListener("click", () => setAllFolders(false));
 document.querySelectorAll(".view-tabs .tab").forEach((t) =>
   t.addEventListener("click", () => {
     if (state.view === t.dataset.view) return;

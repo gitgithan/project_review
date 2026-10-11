@@ -8,7 +8,8 @@ A local web app for reviewing student git projects with a Gemini agent built on
 - **Update** on a project fetches the latest commits. Clones are read-only mirrors,
   so the checkout is simply reset to the remote branch (force-pushes are fine).
 - Browse commit history (all branches), see each commit's message and changed files,
-  and open any file as it was at that commit, or its diff.
+  and open any file as it was at that commit, or its diff. Files are shown in
+  folders that start collapsed (+ / − expand or collapse all; filtering expands matches).
 - Files larger than 512 KB, and binary files, are not previewed (like git hides them).
   You can still ask about them; the agent is told their size.
 - Click a line number (shift-click to extend) or drag-select code to highlight lines,
