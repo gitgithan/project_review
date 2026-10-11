@@ -43,6 +43,7 @@ async function api(path, opts = {}) {
 }
 
 const enc = encodeURIComponent;
+const escapeHtml = (t) => t.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const short = (sha) => (sha || "").slice(0, 7);
 const fmtSize = (n) =>
   n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -50,6 +51,63 @@ const fmtDate = (iso) => {
   const d = new Date(iso);
   return isNaN(d) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 };
+
+// ------------------------------------------------------------ highlighting
+
+const LANG_BY_NAME = {
+  dockerfile: "dockerfile", makefile: "makefile", gnumakefile: "makefile",
+  gemfile: "ruby", rakefile: "ruby", "cmakelists.txt": "plaintext",
+};
+const LANG_BY_EXT = { ipynb: "json", vue: "xml", svelte: "xml", gradle: "kotlin", txt: "plaintext" };
+// Auto-detecting the language is slow on big files; skip it above this size.
+const MAX_AUTO_DETECT_CHARS = 100_000;
+
+if (window.hljs) hljs.configure({ ignoreUnescapedHTML: true });
+
+function languageFor(path) {
+  if (!window.hljs) return null;
+  const name = path.split("/").pop().toLowerCase();
+  if (LANG_BY_NAME[name]) return LANG_BY_NAME[name];
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const ext = name.slice(dot + 1);
+  const lang = LANG_BY_EXT[ext] || ext;
+  return hljs.getLanguage(lang) ? lang : null;
+}
+
+// Highlight a whole text and return one HTML string per line, closing and
+// reopening spans at line breaks so multi-line tokens (comments, strings)
+// keep their colour. Returns null when highlighting is unavailable.
+function highlightLines(text, path) {
+  if (!window.hljs) return null;
+  let html;
+  try {
+    const lang = languageFor(path);
+    if (lang) html = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+    else if (text.length <= MAX_AUTO_DETECT_CHARS) html = hljs.highlightAuto(text).value;
+    else return null;
+  } catch (_) {
+    return null;
+  }
+  const lines = [];
+  const open = [];
+  let cur = "";
+  for (const m of html.matchAll(/(<span[^>]*>)|(<\/span>)|(\n)|([^<\n]+)/g)) {
+    if (m[1]) { open.push(m[1]); cur += m[1]; }
+    else if (m[2]) { open.pop(); cur += m[2]; }
+    else if (m[3]) { lines.push(cur + "</span>".repeat(open.length)); cur = open.join(""); }
+    else cur += m[4];
+  }
+  lines.push(cur + "</span>".repeat(open.length));
+  return lines;
+}
+
+function codeLine(num, text, html, cls = "") {
+  const txt = el("span", { class: "txt" });
+  if (html) txt.innerHTML = html || " ";
+  else txt.textContent = text || " ";
+  return el("div", { class: `ln ${cls}`.trim(), "data-line": num === "" ? null : num }, el("span", { class: "num" }, String(num)), txt);
+}
 
 function setStatus(text, isError = false) {
   const s = $("clone-status");
@@ -396,12 +454,10 @@ function renderContent(f) {
   }
   const lines = f.text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  const html = highlightLines(lines.join("\n"), f.path);
   const code = el("div", { class: "code" });
   const frag = document.createDocumentFragment();
-  lines.forEach((text, i) => {
-    const n = i + 1;
-    frag.append(el("div", { class: "ln", "data-line": n }, el("span", { class: "num" }, String(n)), el("span", { class: "txt" }, text || " ")));
-  });
+  lines.forEach((text, i) => frag.append(codeLine(i + 1, text, html && html[i])));
   code.append(frag);
   return code;
 }
@@ -412,12 +468,25 @@ function renderDiff(d) {
   }
   if (!d.diff) return el("div", { class: "notice" }, "No textual changes.");
   if (/^Binary files .* differ$/m.test(d.diff)) return el("div", { class: "notice" }, "Binary file changed; diff not shown.");
+  const diffLines = d.diff.split("\n");
+  if (diffLines[diffLines.length - 1] === "") diffLines.pop();
+
+  // Highlight the code part of every +/-/context line together (without the
+  // marker column) so the diff gets the file's syntax colours.
+  const codeIdx = [];
+  let hunkSeen = false;
+  diffLines.forEach((t, i) => {
+    if (t.startsWith("@@")) hunkSeen = true;
+    else if (hunkSeen && /^[ +-]/.test(t)) codeIdx.push(i);
+  });
+  const hl = highlightLines(codeIdx.map((i) => diffLines[i].slice(1)).join("\n"), d.path);
+  const htmlAt = new Map();
+  if (hl) codeIdx.forEach((i, k) => htmlAt.set(i, escapeHtml(diffLines[i][0]) + hl[k]));
+
   const code = el("div", { class: "code" });
   let newLine = 0;
   let inHunk = false;
-  const diffLines = d.diff.split("\n");
-  if (diffLines[diffLines.length - 1] === "") diffLines.pop();
-  for (const text of diffLines) {
+  for (const [idx, text] of diffLines.entries()) {
     const m = text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     let cls = "";
     let num = "";
@@ -436,7 +505,7 @@ function renderDiff(d) {
     } else {
       num = newLine++;
     }
-    code.append(el("div", { class: `ln ${cls}`, "data-line": num === "" ? null : num }, el("span", { class: "num" }, String(num)), el("span", { class: "txt" }, text || " ")));
+    code.append(codeLine(num, text, htmlAt.get(idx), cls));
   }
   return code;
 }
@@ -526,6 +595,13 @@ function currentLinesSelection() {
 function renderMarkdown(node, text) {
   if (window.marked && window.DOMPurify) {
     node.innerHTML = DOMPurify.sanitize(marked.parse(text));
+    if (window.hljs) {
+      node.querySelectorAll("pre code").forEach((c) => {
+        const lang = (c.className.match(/language-([\w+#-]+)/) || [])[1];
+        if (lang && !hljs.getLanguage(lang)) c.classList.remove(`language-${lang}`);
+        hljs.highlightElement(c);
+      });
+    }
   } else {
     node.style.whiteSpace = "pre-wrap";
     node.textContent = text;

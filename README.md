@@ -16,6 +16,8 @@ A local web app for reviewing student git projects with a Gemini agent built on
 - Click a line number (shift-click to extend) or drag-select code to highlight lines,
   then **Ask about lines**; or **Ask about file**, or tick files in the file list.
   Selections can come from different projects/commits, e.g. to compare two students.
+- Syntax highlighting (highlight.js, served locally) in the file viewer, diffs and
+  code blocks in answers; the language comes from the file name or is auto-detected.
 - Type a question and the agent answers in the output pane, showing the tools it used.
 
 Example questions: *What is this function for?* · *What is this file for?* ·

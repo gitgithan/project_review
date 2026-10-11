@@ -194,3 +194,4 @@ h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spac
 .ask { display: flex; gap: 6px; padding: 8px 10px 10px; }
 .ask textarea { flex: 1; resize: vertical; min-height: 60px; }
 .viewer-header button { white-space: nowrap; }
+.msg-agent pre code.hljs { padding: 0; background: transparent; }
