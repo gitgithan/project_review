@@ -38,10 +38,16 @@ Requires Python 3.10+ and `git`.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+```
 
-# Use your own Application Default Credentials for Vertex AI
+Then connect Gemini in **one** of two ways. Nothing in the code changes between them;
+Google's client library picks the backend from these environment variables.
+
+### Option A: Vertex AI (your Google Cloud project / credits)
+
+```bash
 gcloud auth application-default login
-cp .env.example .env   # then set GOOGLE_CLOUD_PROJECT (and location if needed)
 ```
 
 `.env`:
@@ -53,6 +59,41 @@ GOOGLE_CLOUD_LOCATION=us-central1
 ```
 
 Make sure the Vertex AI API is enabled on that project.
+
+### Option B: Gemini API key (free tier, no Google Cloud project)
+
+1. Create a key in [Google AI Studio](https://aistudio.google.com/apikey).
+2. `.env` (leave out the Vertex lines; no `gcloud` login needed):
+
+   ```
+   GOOGLE_GENAI_USE_VERTEXAI=FALSE
+   GOOGLE_API_KEY=your-api-key
+   ```
+
+Before using the free tier for student work, note:
+
+- **Privacy.** On the free (unpaid) tier Google may use what you send, here students'
+  code and commit history (names, emails), to improve its products. Vertex AI and the
+  paid API tier don't. Check the current
+  [Gemini API terms](https://ai.google.dev/gemini-api/terms) and your institution's rules.
+- **Rate limits.** Free keys are limited in requests per minute and per day, and one
+  question usually takes 3 to 6 model calls (the agent reads and searches files between
+  steps). Hitting a limit shows a `429` / "resource exhausted" error in the answer pane;
+  wait and ask again.
+- **Model.** The default model must be available to your key. If it's rejected, set
+  `REVIEW_MODEL` to one that [AI Studio](https://aistudio.google.com) lists for the free
+  tier.
+- **Cost display.** The cost figures use the paid prices in `pricing.json`, so on the
+  free tier read them as "what this would cost if billed"; you pay $0. Token counts and
+  the context bar are accurate either way.
+
+To switch back and forth, edit `.env` and restart the server.
+
+### Without Gemini
+
+Browsing projects, branches, commits, files and diffs works with neither option set
+up. Only **Ask** needs Gemini; without it the answer pane shows an error and nothing
+is sent anywhere. (`google-adk` still has to be installed.)
 
 ## Run
 
@@ -82,7 +123,8 @@ It handles cached input, thinking tokens (billed as output), the >200K long-cont
 tier, global vs. regional rates (from `GOOGLE_CLOUD_LOCATION`) and dated promotions.
 Prices change: update `pricing.json` when Google does. A model missing from the
 file still shows tokens, and its cost shows as "cost unknown" / "≥ $…".
-Your Cloud Billing report remains the source of truth.
+Your Cloud Billing report remains the source of truth. With a free-tier API key
+(Option B) the figures are what the usage would cost if billed; you pay nothing.
 
 Private repos: use an SSH URL (`git@github.com:student/repo.git`) or an HTTPS URL
 your local git credential helper can authenticate. The app never prompts for passwords.
