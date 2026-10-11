@@ -8,7 +8,7 @@ const state = {
   detail: null,        // commit detail (message + changes)
   files: [],           // all files in the commit tree
   fileMode: "changed", // "changed" | "all"
-  expanded: new Set(), // expanded folder paths in the file tree
+  folderOpen: new Map(), // folder path -> open/closed, set by the user
   open: null,          // {project, commit, path, status, change}
   view: "content",     // "content" | "diff"
   lineSel: null,       // {start, end} in the open file
@@ -131,7 +131,7 @@ async function deleteProject(name) {
 }
 
 async function selectProject(name) {
-  if (state.project !== name) state.expanded = new Set();
+  if (state.project !== name) state.folderOpen = new Map();
   state.project = name;
   renderProjects();
   await loadCommits();
@@ -257,9 +257,16 @@ function allDirPaths(node, out = []) {
   return out;
 }
 
+// Folders holding fewer than this many files (recursively) start expanded.
+const AUTO_EXPAND_BELOW = 10;
+
+function isFolderOpen(dir) {
+  return state.folderOpen.get(dir.path) ?? dir.count < AUTO_EXPAND_BELOW;
+}
+
 function setAllFolders(expand) {
   if (!state.detail) return;
-  state.expanded = expand ? new Set(allDirPaths(buildTree(fileRows()))) : new Set();
+  state.folderOpen = new Map(allDirPaths(buildTree(fileRows())).map((p) => [p, expand]));
   renderFiles();
 }
 
@@ -277,8 +284,9 @@ function renderFiles() {
   const byName = (a, b) => a.name.localeCompare(b.name);
   const walk = (node, depth) => {
     for (const d of [...node.dirs.values()].sort(byName)) {
-      // Folders start collapsed; while filtering, show every match.
-      const open = !!filter || state.expanded.has(d.path);
+      // Small folders start open, big ones collapsed, unless the user toggled
+      // them; while filtering, show every match.
+      const open = !!filter || isFolderOpen(d);
       const info = state.fileMode === "all" && d.changed ? `${d.changed}/${d.count}` : `${d.count}`;
       ul.append(
         el(
@@ -289,7 +297,7 @@ function renderFiles() {
             title: d.path,
             onclick: () => {
               if (filter) return;
-              state.expanded.has(d.path) ? state.expanded.delete(d.path) : state.expanded.add(d.path);
+              state.folderOpen.set(d.path, !isFolderOpen(d));
               renderFiles();
             },
           },
