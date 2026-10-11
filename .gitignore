@@ -1,0 +1,10 @@
+# Cloned student repositories are never committed
+projects/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
