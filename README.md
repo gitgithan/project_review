@@ -19,6 +19,8 @@ A local web app for reviewing student git projects with a Gemini agent built on
 - Syntax highlighting (highlight.js, served locally) in the file viewer, diffs and
   code blocks in answers; the language comes from the file name or is auto-detected.
 - Type a question and the agent answers in the output pane, showing the tools it used.
+- Drag the borders between the four columns to resize them (double-click a border to
+  reset it); widths are remembered in your browser.
 
 Example questions: *What is this function for?* · *What is this file for?* ·
 *Are these 2 files versions of each other?* · *Summarise what changed in this commit.*

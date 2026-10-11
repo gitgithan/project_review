@@ -61,12 +61,24 @@ h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spac
 .spacer { flex: 1; }
 
 .layout {
+  --w1: 290px;  /* projects + commits */
+  --w2: 260px;  /* files */
+  --w4: 420px;  /* chat; the file viewer takes the rest */
   display: grid;
-  grid-template-columns: 290px 260px minmax(300px, 1fr) 420px;
+  grid-template-columns: var(--w1) 5px var(--w2) 5px minmax(200px, 1fr) 5px var(--w4);
   height: 100vh;
 }
+.gutter {
+  cursor: col-resize;
+  background: var(--border);
+  border-left: 2px solid var(--bg);
+  border-right: 2px solid var(--bg);
+  touch-action: none;
+}
+.gutter:hover, .gutter.dragging { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe { pointer-events: none; }
 .pane {
-  border-right: 1px solid var(--border);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -154,7 +166,6 @@ h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spac
 .ln.del { background: var(--del); }
 .ln.hunk { background: var(--hunk); color: var(--muted); }
 
-.chat-pane { border-right: none; }
 .output { flex: 1; overflow-y: auto; padding: 10px; }
 .hint { color: var(--muted); font-size: 13px; }
 .hint .example { display: block; margin: 6px 0; text-align: left; font-size: 12px; }
@@ -195,3 +206,5 @@ h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spac
 .ask textarea { flex: 1; resize: vertical; min-height: 60px; }
 .viewer-header button { white-space: nowrap; }
 .msg-agent pre code.hljs { padding: 0; background: transparent; }
+.viewer-header { flex-wrap: wrap; }
+.viewer-header #viewer-title { flex: 1 1 120px; min-width: 0; }

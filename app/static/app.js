@@ -699,7 +699,79 @@ function wireExamples() {
   );
 }
 
+// ------------------------------------------------------------ resizable columns
+
+const COLUMN_DEFAULTS = { 1: 290, 2: 260, 4: 420 };
+const MIN_COLUMN = 150;
+const MIN_VIEWER = 200;
+const WIDTHS_KEY = "project-review:column-widths";
+
+function columnWidths() {
+  const layout = document.querySelector(".layout");
+  const w = {};
+  for (const col of Object.keys(COLUMN_DEFAULTS)) {
+    w[col] = parseFloat(getComputedStyle(layout).getPropertyValue(`--w${col}`)) || COLUMN_DEFAULTS[col];
+  }
+  return w;
+}
+
+// Clamp `cols` (default: all) so each stays >= MIN_COLUMN and the viewer keeps
+// MIN_VIEWER; columns not listed keep their width.
+function applyColumnWidths(w, cols = Object.keys(w)) {
+  const layout = document.querySelector(".layout");
+  const gutters = 15;
+  for (const col of cols) {
+    const others = Object.entries(w).filter(([c]) => c !== col).reduce((n, [, v]) => n + v, 0);
+    const max = window.innerWidth - others - MIN_VIEWER - gutters;
+    w[col] = Math.max(MIN_COLUMN, Math.min(w[col], Math.max(MIN_COLUMN, max)));
+    layout.style.setProperty(`--w${col}`, `${Math.round(w[col])}px`);
+  }
+}
+
+function saveColumnWidths() {
+  try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(columnWidths())); } catch (_) {}
+}
+
+function initResizers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) || "null");
+    if (saved) applyColumnWidths({ ...COLUMN_DEFAULTS, ...saved });
+  } catch (_) {}
+
+  document.querySelectorAll(".gutter").forEach((g) => {
+    const col = g.dataset.col;
+    // The chat column sits to the right of its gutter, so it shrinks as you drag right.
+    const sign = col === "4" ? -1 : 1;
+    g.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      g.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const start = columnWidths();
+      g.classList.add("dragging");
+      document.body.classList.add("resizing");
+      const move = (ev) => applyColumnWidths({ ...start, [col]: start[col] + sign * (ev.clientX - startX) }, [col]);
+      const up = () => {
+        g.removeEventListener("pointermove", move);
+        g.removeEventListener("pointerup", up);
+        g.removeEventListener("pointercancel", up);
+        g.classList.remove("dragging");
+        document.body.classList.remove("resizing");
+        saveColumnWidths();
+      };
+      g.addEventListener("pointermove", move);
+      g.addEventListener("pointerup", up);
+      g.addEventListener("pointercancel", up);
+    });
+    g.addEventListener("dblclick", () => {
+      applyColumnWidths({ ...columnWidths(), [col]: COLUMN_DEFAULTS[col] }, [col]);
+      saveColumnWidths();
+    });
+  });
+}
+
 // ------------------------------------------------------------ wiring
+
+initResizers();
 
 $("clone-form").addEventListener("submit", (e) => { e.preventDefault(); cloneProject($("clone-url").value); });
 document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((t) =>
