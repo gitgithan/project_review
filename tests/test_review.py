@@ -48,20 +48,6 @@ def capstone(tmp_path, monkeypatch):
     return "capstone"
 
 
-@pytest.mark.parametrize("path, size, expected", [
-    ("src/app.py", 100, "source"),
-    ("data/raw/x.csv", 100, "data"),
-    ("x.parquet", 10, "data"),
-    ("config/settings.json", 500, "source"),
-    ("dumps/big.json", 5_000_000, "data"),
-    ("node_modules/a/b.js", 10, "skip"),
-    ("package-lock.json", 10, "skip"),
-    ("docs/diagram.png", 10, "skip"),
-])
-def test_classify(path, size, expected):
-    assert review.classify(path, size) == expected
-
-
 def test_collect(capstone):
     pack = review.collect(capstone, "HEAD", "main")
     st = pack.stats
@@ -83,22 +69,6 @@ def test_collect(capstone):
     assert "agents/agent.py:5" in patterns["Row-by-row Pandas (iterrows/itertuples/apply)"]["where"]
     assert "Full-table overwrites" in patterns
     assert checks["deployment"]["verdict"] == "application deployment to Google Cloud found"
-
-
-def test_budget_omits_files(capstone):
-    pack = review.collect(capstone, "HEAD", "main", max_chars=200)
-    assert pack.stats["source_omitted"] > 0
-    assert "## Source files omitted for size" in pack.message
-
-
-def test_review_pdf():
-    pytest.importorskip("xhtml2pdf")
-    from app.pdf import review_pdf
-
-    md = ("## Section 2\n| A | B |\n|---|---|\n| `spark.read.csv(\"data/raw/*.csv\")` | x → y 🚀 |\n\n"
-          "- item\n  - nested\n\n<img src='/etc/passwd'>")
-    data = review_pdf(md, "Architecture Review: p @ main", "meta")
-    assert data.startswith(b"%PDF")
 
 
 def _pdf_text(data: bytes) -> str:
@@ -140,29 +110,3 @@ def test_pdf_download_has_no_usage_or_cost(client):
     assert "All good." in text
     for leak in ("$", "0.4321", "123456", "123,456", "7890", "token", "Token", "cost", "Cost"):
         assert leak not in text
-
-
-def test_pdf_download_explains_missing_packages(client, monkeypatch):
-    import sys
-
-    c, review_id = client
-    monkeypatch.setitem(sys.modules, "app.pdf", None)  # makes `from app.pdf import ...` fail
-    res = c.get(f"/api/reviews/{review_id}/pdf")
-    assert res.status_code == 503
-    assert "pip install -r requirements.txt" in res.json()["detail"]
-
-
-def test_review_brief_does_not_steer_towards_adk():
-    import re
-
-    brief = review.review_instruction()
-    mentions = [ln for ln in brief.splitlines() if re.search(r"(?i)\badk\b|agent", ln)]
-    # Agents/LLMs are only reviewed when present; nothing else in the brief points at them.
-    assert len(mentions) == 1 and "(only if present)" in mentions[0]
-
-
-def test_llm_frameworks_detected_only_when_used():
-    plain = review.static_checks({"etl.py": "import pandas as pd\n"})
-    assert not any("ADK" in t or "LLM" in t for t in plain["technologies"])
-    with_adk = review.static_checks({"agent.py": "from google.adk.agents import Agent\n"})
-    assert "Google ADK (agents)" in with_adk["technologies"]

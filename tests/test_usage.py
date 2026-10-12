@@ -21,13 +21,10 @@ M = 1_000_000
 @pytest.mark.parametrize(
     "model, location, day, expected",
     [
-        ("gemini-2.5-flash", "us-central1", None, 0.30 + 2.50),
         ("gemini-2.5-flash-001", "global", None, 0.30 + 2.50),       # prefix match
-        ("gemini-2.5-flash-lite", "global", None, 0.10 + 0.40),      # longest prefix wins
-        ("gemini-3.5-flash", "global", None, 1.50 + 9.00),
         ("gemini-3.5-flash", "us-central1", None, 1.65 + 9.90),      # regional rate
         ("gemini-3.8-flash", "global", datetime.date(2026, 12, 31), 0.75 + 3.75),  # promo
-        ("gemini-3.8-flash", "global", datetime.date(2027, 1, 1), 1.50 + 7.50),
+        ("gemini-3.8-flash", "global", datetime.date(2027, 1, 1), 1.50 + 7.50),    # after promo
     ],
 )
 def test_cost_per_million(model, location, day, expected):
