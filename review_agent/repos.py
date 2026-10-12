@@ -337,6 +337,22 @@ def read_file(name: str, rev: str, file_path: str, max_bytes: int = MAX_PREVIEW_
     return FileContent(file_path, sha, size, "ok", data.decode("utf-8", "replace"))
 
 
+def read_head(name: str, rev: str, file_path: str, max_bytes: int = 4096) -> str:
+    """First `max_bytes` of a file without loading the whole blob."""
+    path = project_path(name)
+    sha = resolve_commit(name, rev)
+    proc = subprocess.Popen(
+        ["git", "-C", str(path), "cat-file", "blob", _blob_spec(sha, file_path)],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=_GIT_ENV,
+    )
+    try:
+        data = proc.stdout.read(max_bytes)
+    finally:
+        proc.kill()
+        proc.wait()
+    return data.decode("utf-8", "replace")
+
+
 def file_diff(name: str, rev: str, file_path: str) -> dict:
     """Patch of one file in a commit against its first parent."""
     path = project_path(name)
