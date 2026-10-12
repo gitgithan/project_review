@@ -22,6 +22,10 @@ A local web app for reviewing student git projects with a Gemini agent built on
 - Syntax highlighting (highlight.js, served locally) in the file viewer, diffs and
   code blocks in answers; the language comes from the file name or is auto-detected.
 - Type a question and the agent answers in the output pane, showing the tools it used.
+- **Review this branch**: a whole-project static architecture review of the selected
+  project and branch (see [Architecture reviews](#architecture-reviews)). It appears in
+  the chat pane with its own token/cost meter, can go **full screen** and back, can be
+  downloaded as a **PDF**, and is saved so you can reopen it from **Past reviews**.
 - Token use and cost like Cline: the chat header shows tokens sent ↑ / received ↓,
   cached tokens, a context-window bar, this chat's API cost and the all-time total;
   each answer shows its own tokens, model calls and cost.
@@ -113,6 +117,11 @@ Open http://localhost:8000.
 | `MAX_DIFF_BYTES` | `524288` | Diffs above this size are not shown |
 | `PRICING_FILE` | `./pricing.json` | Gemini prices used for cost estimates |
 | `USAGE_LOG` | `./usage_log.jsonl` | Ledger of every model call (git-ignored), used for the all-time total |
+| `REVIEWS_DIR` | `./reviews` | Where architecture reviews are saved (git-ignored) |
+| `REVIEW_PROMPT_FILE` | `review_agent/prompts/capstone_review.md` | The review brief |
+| `REVIEW_MAX_CHARS` | `600000` | Max source text inlined into a review (~150K tokens); the rest is listed for the agent to open |
+| `REVIEW_MAX_FILE_CHARS` | `60000` | Per-file cap; longer files keep their start and end |
+| `REVIEW_DATA_SAMPLE_FILES` | `6` | How many data files to sample |
 
 ### Token and cost tracking
 
@@ -126,15 +135,53 @@ file still shows tokens, and its cost shows as "cost unknown" / "≥ $…".
 Your Cloud Billing report remains the source of truth. With a free-tier API key
 (Option B) the figures are what the usage would cost if billed; you pay nothing.
 
+## Architecture reviews
+
+Pick the project and branch, then click **Review this branch**. Nothing from the
+student's project is executed; the review is static:
+
+1. **Code prepares a snapshot** (`review_agent/review.py`) of the branch's latest commit:
+   - every file is classified as *source* (code, SQL, config, infra, docs, notebooks),
+     *data* (CSV/Parquet/JSONL/…, files in `data/`-style folders, big JSON dumps) or
+     *skipped* (`node_modules`, virtualenvs, lockfiles, images, archives);
+   - all source files are read in full; notebooks keep their cells but drop outputs;
+   - data files are only **sampled**: the first 15 lines of one file per type and folder
+     (up to 6), plus counts and sizes for the rest, to save tokens;
+   - code-based checks run over all source: technologies used, ADK constructs
+     (agents, workflow agents, session-state writes, `output_key`, model ids),
+     unpinned images/requirements, missing health checks and CPU/memory limits in
+     Docker Compose, literal passwords, likely secrets, `ds`/partition parameters,
+     and whether the project is already deployed to Google Cloud.
+2. **The review agent** (an ADK `LlmAgent`) gets that snapshot in one request with the
+   brief in `review_agent/prompts/capstone_review.md`. That brief covers ADK
+   orchestration, pipeline and infrastructure, scalability, robustness, and Google Cloud
+   deployment (considerations and options if not yet deployed). It asks for four
+   sections: a scalability overview, a findings table, a 5-minute presentation outline,
+   and deployment. The agent can still open omitted files with its read-only tools.
+   Edit the brief to change what reviews focus on.
+
+Reviews are saved in `reviews/` (git-ignored) as Markdown + JSON with the commit, model
+and token/cost usage. **Download Review** renders a landscape A4 PDF on the server
+(Markdown → HTML → PDF with `xhtml2pdf`; it embeds DejaVu/Arial when available). The
+PDF renderer cannot fetch URLs and reads only font folders.
+
+A review sends roughly the size of the project's source code to the model once (a 300 KB
+codebase is about 75K input tokens), plus any files the agent opens. The meter on the
+review card shows the actual tokens and cost.
+
 Private repos: use an SSH URL (`git@github.com:student/repo.git`) or an HTTPS URL
 your local git credential helper can authenticate. The app never prompts for passwords.
 
 ## How it works
 
 ```
-app/main.py            FastAPI server: git endpoints + /api/ask (streams agent events)
+app/main.py            FastAPI server: git endpoints, /api/ask and /api/review (stream agent events)
+app/reviews.py         Saved reviews;  app/pdf.py  Markdown → PDF
+app/usage.py           Token/cost tracking
 app/static/            Single-page UI (no build step)
 review_agent/agent.py  ADK Agent (root_agent) with read-only tools
+review_agent/review.py Static snapshot + checks, and the review agent
+review_agent/prompts/  The review brief
 review_agent/repos.py  git helpers: clone, update, log, ls-tree, cat-file, diff, grep
 ```
 
