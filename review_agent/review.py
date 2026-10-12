@@ -6,7 +6,8 @@ The project is analysed statically in two steps:
    source (code, config, infra, docs), data or skipped (vendored, lockfiles,
    binaries), reads all source files, samples only a few data files, and runs
    cheap static checks (unpinned images/deps, missing health checks and
-   resource limits, hardcoded secrets, ADK constructs, partition parameters).
+   resource limits, hardcoded secrets, in-memory hotspots, full reloads,
+   orchestration constructs, partition parameters, deployment evidence).
 2. `review_agent` (an ADK LlmAgent) receives that pack in one message and
    writes the review; it can still read omitted files with its tools.
 
@@ -72,7 +73,7 @@ LARGE_TEXT_DATA_BYTES = 200_000
 PRIORITY_NAMES = (
     "readme", "dockerfile", "docker-compose", "compose", "makefile", "requirements",
     "pyproject", "setup.py", "setup.cfg", "pipfile", "package.json", "dbt_project",
-    "profiles", "airflow", "dag", "agent", "main", "app", "pipeline",
+    "profiles", "airflow", "dag", "main", "app", "pipeline",
 )
 PRIORITY_EXT = ("tf", "tfvars", "hcl", "yml", "yaml", "toml", "sql", "py", "ipynb")
 
@@ -152,8 +153,6 @@ SECRET_PATTERNS = [
 PLACEHOLDER = re.compile(r"(?i)(your|example|changeme|xxx|placeholder|dummy|<|\{\{|\$\{|os\.environ|getenv)")
 
 TECH_PATTERNS = [
-    ("Google ADK", r"google\.adk|from google\.adk|google-adk"),
-    ("ADK multi-agent (Sequential/Parallel/Loop)", r"\b(SequentialAgent|ParallelAgent|LoopAgent)\b"),
     ("PySpark", r"\bpyspark\b|SparkSession"),
     ("Pandas", r"\bimport pandas\b|\bpd\.read_"),
     ("Polars", r"\bimport polars\b|\bpl\.read_"),
@@ -174,17 +173,22 @@ TECH_PATTERNS = [
     ("Docker", r"^FROM\s"),
     ("Streamlit", r"\bstreamlit\b"),
     ("FastAPI", r"\bfastapi\b"),
+    ("Google ADK (agents)", r"google\.adk|google-adk"),
+    ("LangChain / LangGraph", r"\blangchain|\blanggraph"),
+    ("LLM API client", r"google\.genai|google\.generativeai|vertexai\.generative_models|\bopenai\b|\banthropic\b"),
     ("Requests/HTTP client", r"\brequests\.(get|post)|\bhttpx\b|\baiohttp\b"),
 ]
 
-ADK_PATTERNS = [
-    ("LLM agents", r"\b(?:Llm)?Agent\("),
-    ("Workflow agents", r"\b(?:SequentialAgent|ParallelAgent|LoopAgent)\("),
-    ("Agent-as-tool / sub_agents", r"\bAgentTool\(|\bsub_agents\s*="),
-    ("Session state writes", r"\bstate\[[^\]]+\]\s*="),
-    ("output_key", r"\boutput_key\s*="),
-    ("Callbacks", r"\b(before|after)_(agent|model|tool)_callback\s*="),
-    ("Model ids", r"[\"']gemini-[\w.\-]+[\"']"),
+# Code patterns that often matter for data-pipeline scalability and re-runs.
+DATA_PATTERNS = [
+    ("Collect to one machine (toPandas/collect)", r"\.toPandas\(|\.collect\(\)"),
+    ("Row-by-row Pandas (iterrows/itertuples/apply)", r"\.iterrows\(|\.itertuples\(|\.apply\("),
+    ("Whole-file reads (read_csv/read_json/read_parquet)", r"\bread_(csv|json|parquet|excel)\("),
+    ("Full-table overwrites", r"if_exists\s*=\s*[\"']replace|\bTRUNCATE\b|\bDROP\s+TABLE\b|mode\([\"']overwrite|WRITE_TRUNCATE"),
+    ("Incremental / upsert writes", r"\bMERGE\s+INTO\b|ON\s+CONFLICT|if_exists\s*=\s*[\"']append|is_incremental\(|WRITE_APPEND"),
+    ("Retries / backoff", r"\bretries\s*=|\bretry\b|tenacity|backoff"),
+    ("Scheduled pipelines (DAGs / flows / cron)", r"\bDAG\(|@dag\b|@flow\b|@task\b|schedule(_interval)?\s*=|\bcron\b"),
+    ("Sleep calls (rate limiting / polling)", r"\btime\.sleep\("),
 ]
 # Evidence the project is (or is meant to be) deployed to Google Cloud.
 DEPLOY_FILE_PATTERNS = [
@@ -198,8 +202,6 @@ DEPLOY_FILE_PATTERNS = [
 ]
 DEPLOY_TEXT_PATTERNS = [
     ("gcloud run deploy", r"gcloud\s+run\s+(deploy|jobs)"),
-    ("adk deploy", r"\badk\s+deploy\b"),
-    ("Vertex AI Agent Engine", r"agent_engines|reasoning_engines|AgentEngine"),
     ("Cloud Functions", r"gcloud\s+functions\s+deploy|functions_framework"),
     ("Cloud Composer / Scheduler / Workflows", r"composer|cloud_scheduler|gcloud\s+scheduler|google_workflows"),
     ("google-github-actions", r"google-github-actions/"),
@@ -220,7 +222,7 @@ def deployment_signals(paths: list[str], sources: dict[str, str]) -> dict:
         if hits:
             text[label] = hits[:8]
     files = {k: v for k, v in files.items() if v}
-    app_deploy = {"gcloud run deploy", "adk deploy", "Vertex AI Agent Engine", "Cloud Functions",
+    app_deploy = {"gcloud run deploy", "Cloud Functions",
                   "google-github-actions", "Deployed service URL"} & set(text)
     app_deploy |= {"Cloud Build config", "App Engine config", "Cloud Run / Knative service YAML"} & set(files)
     infra_only = {"Terraform google resources", "Secret Manager", "Artifact Registry / GCR"} & set(text)
@@ -247,20 +249,20 @@ def _line_of(text: str, index: int) -> int:
 def static_checks(sources: dict[str, str]) -> dict:
     """Code-based findings over the full source text (never truncated)."""
     tech = Counter()
-    adk = Counter()
-    adk_where: dict[str, list[str]] = {}
+    patterns = Counter()
+    pattern_where: dict[str, list[str]] = {}
     secrets, infra, partition_hits = [], [], []
 
     for path, text in sources.items():
         for label, pat in TECH_PATTERNS:
             if re.search(pat, text, re.IGNORECASE | re.MULTILINE):
                 tech[label] += 1
-        if path.endswith((".py", ".ipynb")):
-            for label, pat in ADK_PATTERNS:
-                found = list(re.finditer(pat, text))
+        if path.endswith((".py", ".ipynb", ".sql", ".scala", ".r")):
+            for label, pat in DATA_PATTERNS:
+                found = list(re.finditer(pat, text, re.IGNORECASE))
                 if found:
-                    adk[label] += len(found)
-                    adk_where.setdefault(label, []).extend(
+                    patterns[label] += len(found)
+                    pattern_where.setdefault(label, []).extend(
                         f"{path}:{_line_of(text, m.start())}" for m in found[:5])
         for label, pat in SECRET_PATTERNS:
             for m in pat.finditer(text):
@@ -294,7 +296,7 @@ def static_checks(sources: dict[str, str]) -> dict:
 
     return {
         "technologies": sorted(tech, key=lambda k: -tech[k]),
-        "adk": {k: {"count": adk[k], "where": adk_where.get(k, [])} for k in adk},
+        "data_patterns": {k: {"count": patterns[k], "where": pattern_where.get(k, [])[:8]} for k in patterns},
         "possible_secrets": secrets[:30],
         "infra": infra[:40],
         "partition_param_files": partition_hits[:30],

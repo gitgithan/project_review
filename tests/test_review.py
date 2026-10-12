@@ -20,14 +20,16 @@ def capstone(tmp_path, monkeypatch):
     for d in ("agents", "data/raw", "node_modules/x", "notebooks"):
         (src / d).mkdir(parents=True)
     _git(src, "init", "-q", "-b", "main")
-    (src / "agents/agent.py").write_text(
-        "from google.adk.agents import Agent\n"
+    (src / "agents/agent.py").write_text(  # folder name kept: any source path works
+        "import pandas as pd\n"
         'KEY = "AIza' + "A" * 35 + '"\n'
-        "def tool(tool_context):\n"
-        '    tool_context.state["rows"] = []\n'
-        'root_agent = Agent(name="a", model="gemini-2.5-flash", output_key="x")\n'
+        "def load(engine):\n"
+        '    df = pd.read_csv("data/raw/a.csv")\n'
+        "    for _, row in df.iterrows():\n"
+        "        pass\n"
+        '    df.to_sql("t", engine, if_exists="replace")\n'
     )
-    (src / "requirements.txt").write_text("google-adk\npandas==2.2.0\n")
+    (src / "requirements.txt").write_text("sqlalchemy\npandas==2.2.0\n")
     (src / "docker-compose.yml").write_text(
         "services:\n  db:\n    image: postgres:latest\n    environment:\n      POSTGRES_PASSWORD: hunter22\n"
     )
@@ -76,7 +78,10 @@ def test_collect(capstone):
     assert any("postgres:latest" in s for s in checks["infra"])
     assert any("POSTGRES_PASSWORD" in s for s in checks["infra"])
     assert any("unpinned requirement" in s for s in checks["infra"])
-    assert "Session state writes" in checks["adk"]
+    assert "adk" not in checks
+    patterns = checks["data_patterns"]
+    assert "agents/agent.py:5" in patterns["Row-by-row Pandas (iterrows/itertuples/apply)"]["where"]
+    assert "Full-table overwrites" in patterns
     assert checks["deployment"]["verdict"] == "application deployment to Google Cloud found"
 
 
@@ -145,3 +150,19 @@ def test_pdf_download_explains_missing_packages(client, monkeypatch):
     res = c.get(f"/api/reviews/{review_id}/pdf")
     assert res.status_code == 503
     assert "pip install -r requirements.txt" in res.json()["detail"]
+
+
+def test_review_brief_does_not_steer_towards_adk():
+    import re
+
+    brief = review.review_instruction()
+    mentions = [ln for ln in brief.splitlines() if re.search(r"(?i)\badk\b|agent", ln)]
+    # Agents/LLMs are only reviewed when present; nothing else in the brief points at them.
+    assert len(mentions) == 1 and "(only if present)" in mentions[0]
+
+
+def test_llm_frameworks_detected_only_when_used():
+    plain = review.static_checks({"etl.py": "import pandas as pd\n"})
+    assert not any("ADK" in t or "LLM" in t for t in plain["technologies"])
+    with_adk = review.static_checks({"agent.py": "from google.adk.agents import Agent\n"})
+    assert "Google ADK (agents)" in with_adk["technologies"]

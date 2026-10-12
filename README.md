@@ -158,14 +158,15 @@ student's project is executed; the review is static:
    - all source files are read in full; notebooks keep their cells but drop outputs;
    - data files are only **sampled**: the first 15 lines of one file per type and folder
      (up to 6), plus counts and sizes for the rest, to save tokens;
-   - code-based checks run over all source: technologies used, ADK constructs
-     (agents, workflow agents, session-state writes, `output_key`, model ids),
-     unpinned images/requirements, missing health checks and CPU/memory limits in
+   - code-based checks run over all source: technologies used (including any LLM or
+     agent frameworks, if present), data-pipeline patterns (`toPandas()`/`collect()`,
+     row-by-row Pandas, full-table overwrites vs. incremental writes, retries,
+     schedules), unpinned images/requirements, missing health checks and CPU/memory limits in
      Docker Compose, literal passwords, likely secrets, `ds`/partition parameters,
      and whether the project is already deployed to Google Cloud.
 2. **The review agent** (an ADK `LlmAgent`) gets that snapshot in one request with the
-   brief in `review_agent/prompts/capstone_review.md`. That brief covers ADK
-   orchestration, pipeline and infrastructure, scalability, robustness, and Google Cloud
+   brief in `review_agent/prompts/capstone_review.md`. That brief covers engine
+   choice and orchestration, pipeline and infrastructure, scalability, robustness, and Google Cloud
    deployment (considerations and options if not yet deployed). It asks for four
    sections: a scalability overview, findings, a 5-minute presentation outline, and
    deployment. Findings and deployment advice are split into **Before the Demo** (a
