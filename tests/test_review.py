@@ -94,3 +94,54 @@ def test_review_pdf():
           "- item\n  - nested\n\n<img src='/etc/passwd'>")
     data = review_pdf(md, "Architecture Review: p @ main", "meta")
     assert data.startswith(b"%PDF")
+
+
+def _pdf_text(data: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader  # installed with xhtml2pdf
+    return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+
+
+def test_review_pdf_falls_back_to_builtin_fonts(monkeypatch):
+    pytest.importorskip("xhtml2pdf")
+    from app import pdf
+
+    monkeypatch.setattr(pdf, "_fonts", lambda: {"regular": "/nonexistent/font.ttf", "bold": None,
+                                                "italic": None, "mono": None})
+    data = pdf.review_pdf("Shift → BigQuery ≥ 10x", "Architecture Review: p", "meta")
+    assert "Shift -> BigQuery >= 10x" in _pdf_text(data)
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import main, reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_DIR", tmp_path / "reviews")
+    meta = reviews.save("proj", "main", "a" * 40, "gemini-3.1-flash-lite", "## Section 1\nAll good.",
+                        {"source_files": 3},
+                        {"input": 123456, "output": 7890, "cost": 0.4321, "calls": 3, "cost_known": True})
+    return TestClient(main.app), meta["id"]
+
+
+def test_pdf_download_has_no_usage_or_cost(client):
+    pytest.importorskip("xhtml2pdf")
+    c, review_id = client
+    res = c.get(f"/api/reviews/{review_id}/pdf")
+    assert res.status_code == 200 and res.headers["content-type"] == "application/pdf"
+    text = _pdf_text(res.content)
+    assert "All good." in text
+    for leak in ("$", "0.4321", "123456", "123,456", "7890", "token", "Token", "cost", "Cost"):
+        assert leak not in text
+
+
+def test_pdf_download_explains_missing_packages(client, monkeypatch):
+    import sys
+
+    c, review_id = client
+    monkeypatch.setitem(sys.modules, "app.pdf", None)  # makes `from app.pdf import ...` fail
+    res = c.get(f"/api/reviews/{review_id}/pdf")
+    assert res.status_code == 503
+    assert "pip install -r requirements.txt" in res.json()["detail"]

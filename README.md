@@ -177,7 +177,12 @@ student's project is executed; the review is static:
 Reviews are saved in `reviews/` (git-ignored) as Markdown + JSON with the commit, model
 and token/cost usage. **Download Review** renders a landscape A4 PDF on the server
 (Markdown → HTML → PDF with `xhtml2pdf`; it embeds DejaVu/Arial when available). The
-PDF renderer cannot fetch URLs and reads only font folders.
+PDF renderer cannot fetch URLs and reads only font folders. If the system fonts can't be
+used, it falls back to the built-in PDF fonts. If the download fails, the reason is shown
+on the review card (most often: run `pip install -r requirements.txt` and restart).
+
+The review text and the PDF never include token usage or cost; those appear only in
+the app (the meter on the review card and the Past reviews list).
 
 A review sends roughly the size of the project's source code to the model once (a 300 KB
 codebase is about 75K input tokens), plus any files the agent opens. The meter on the

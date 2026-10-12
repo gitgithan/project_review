@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 import io
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -11,6 +12,8 @@ from pathlib import Path
 import markdown
 from xhtml2pdf import pisa
 from xhtml2pdf.config.resources import ResourceAccessPolicy
+
+log = logging.getLogger(__name__)
 
 # Unicode TTF fonts to embed, first match wins. Without one, the built-in
 # Helvetica/Courier are used and characters outside Latin-1 are transliterated.
@@ -65,21 +68,23 @@ def _fonts() -> dict[str, str] | None:
     return found if found["regular"] else None
 
 
-@lru_cache(maxsize=1)
-def _font_charset() -> frozenset[int] | None:
-    fonts = _fonts()
-    if not fonts:
+@lru_cache(maxsize=4)
+def _font_charset(regular_path: str | None) -> frozenset[int] | None:
+    if not regular_path:
         return None
     try:
         from reportlab.pdfbase.ttfonts import TTFont
-        return frozenset(TTFont("probe", fonts["regular"]).face.charToGlyph)
+        return frozenset(TTFont("probe", regular_path).face.charToGlyph)
     except Exception:
         return None
 
 
-def _clean_text(text: str) -> str:
-    """Replace characters the chosen font cannot draw (e.g. emoji)."""
-    charset = _font_charset()
+def _clean_text(text: str, fonts: dict | None = None) -> str:
+    """Replace characters the chosen font cannot draw (e.g. emoji).
+
+    Without embedded fonts, only Latin-1 is drawable by the built-in fonts.
+    """
+    charset = _font_charset(fonts["regular"]) if fonts else None
 
     def ok(ch: str) -> bool:
         if ch in "\n\t":
@@ -131,14 +136,13 @@ def _breakable_table_code(html: str) -> str:
     return re.sub(r"<t[dh][^>]*>.*?</t[dh]>", fix_cell, html, flags=re.S)
 
 
-def _policy() -> ResourceAccessPolicy:
+def _policy(fonts: dict | None) -> ResourceAccessPolicy:
     """No network access, and local reads only from the font folders.
 
     The review text is model output influenced by student code, so it must not
     be able to make the renderer fetch URLs or read other local files.
     """
-    fonts = _fonts() or {}
-    dirs = sorted({str(Path(p).parent) for p in fonts.values() if p})
+    dirs = sorted({str(Path(p).parent) for p in (fonts or {}).values() if p})
     if not dirs:
         return ResourceAccessPolicy(allow_remote=False, base_dir=None)
     return ResourceAccessPolicy(allow_remote=False, base_dir=Path(dirs[0]),
@@ -177,8 +181,7 @@ def _column_widths(html: str) -> str:
     return re.sub(r"<table>.*?</table>", size_table, html, flags=re.S)
 
 
-def _css() -> str:
-    fonts = _fonts()
+def _css(fonts: dict | None) -> str:
     faces = ""
     body_font, mono_font = "Helvetica", "Courier"
     if fonts:
@@ -215,22 +218,34 @@ li {{ margin-bottom: 1pt; }}
 """
 
 
-def review_pdf(markdown_text: str, title: str, meta: str) -> bytes:
+def _render(markdown_text: str, title: str, meta: str, fonts: dict | None) -> bytes:
     body = markdown.markdown(
-        _normalize_lists(_clean_text(markdown_text)),
+        _normalize_lists(_clean_text(markdown_text, fonts)),
         extensions=["tables", "fenced_code", "sane_lists"],
     )
     body = _column_widths(_breakable_table_code(body))
     doc = (
-        "<html><head><meta charset='utf-8'><style>" + _css() + "</style></head><body>"
-        f"<h1>{html_lib.escape(_clean_text(title))}</h1>"
-        f"<div class='meta'>{html_lib.escape(_clean_text(meta))}</div>"
+        "<html><head><meta charset='utf-8'><style>" + _css(fonts) + "</style></head><body>"
+        f"<h1>{html_lib.escape(_clean_text(title, fonts))}</h1>"
+        f"<div class='meta'>{html_lib.escape(_clean_text(meta, fonts))}</div>"
         f"{body}"
         "<div id='footer'>Page <pdf:pagenumber> of <pdf:pagecount></div>"
         "</body></html>"
     )
     out = io.BytesIO()
-    result = pisa.CreatePDF(doc, dest=out, encoding="utf-8", resource_policy=_policy())
+    result = pisa.CreatePDF(doc, dest=out, encoding="utf-8", resource_policy=_policy(fonts))
     if result.err:
-        raise RuntimeError("PDF rendering failed")
+        raise RuntimeError(f"xhtml2pdf reported {result.err} error(s)")
     return out.getvalue()
+
+
+def review_pdf(markdown_text: str, title: str, meta: str) -> bytes:
+    """Render with embedded system fonts; fall back to the built-in fonts."""
+    fonts = _fonts()
+    if fonts:
+        try:
+            return _render(markdown_text, title, meta, fonts)
+        except Exception:
+            log.warning("PDF rendering with system fonts failed; retrying with built-in fonts",
+                        exc_info=True)
+    return _render(markdown_text, title, meta, None)

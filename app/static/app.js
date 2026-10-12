@@ -1013,7 +1013,34 @@ function usagePanel() {
 function reviewCard(heading) {
   const title = el("strong", { class: "review-title" }, heading);
   const subtitle = el("div", { class: "review-sub muted" });
-  const download = el("a", { class: "button disabled", "aria-disabled": "true", title: "Download this review as a PDF" }, "Download Review");
+  const download = el("button", { disabled: "", title: "Download this review as a PDF" }, "Download Review");
+  let reviewId = null;
+  download.addEventListener("click", async () => {
+    if (!reviewId) return;
+    download.disabled = true;
+    download.textContent = "Preparing PDF…";
+    try {
+      const res = await fetch(`/api/reviews/${enc(reviewId)}/pdf`);
+      if (!res.ok) {
+        let detail = `${res.status} ${res.statusText}`;
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const name = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "review.pdf";
+      const url = URL.createObjectURL(blob);
+      const a = el("a", { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      progress.append(el("div", { class: "msg-error" }, `Download failed: ${e.message}`));
+    } finally {
+      download.disabled = false;
+      download.textContent = "Download Review";
+    }
+  });
   const expand = el("button", { title: "Full screen (Esc to exit)" }, "⛶ Full screen");
   const progress = el("div", { class: "review-progress" });
   const body = el("div", { class: "review-body md" });
@@ -1036,10 +1063,8 @@ function reviewCard(heading) {
       if (heading2) title.textContent = heading2;
       if (sub) subtitle.textContent = sub;
       renderMarkdown(body, markdown);
-      download.href = `/api/reviews/${enc(meta.id)}/pdf`;
-      download.setAttribute("download", "");
-      download.classList.remove("disabled");
-      download.removeAttribute("aria-disabled");
+      reviewId = meta.id;
+      download.disabled = false;
       usageBox.update(meta.usage && meta.usage.calls ? meta.usage : null);
     },
     log(text, cls = "") { progress.append(el("div", { class: cls }, text)); },

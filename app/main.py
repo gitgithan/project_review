@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -26,6 +27,8 @@ from pydantic import BaseModel, Field  # noqa: E402
 from app import reviews, usage  # noqa: E402
 from review_agent import repos, review  # noqa: E402
 from review_agent.agent import MODEL, root_agent  # noqa: E402
+
+log = logging.getLogger("project_review")
 
 APP_NAME = "project_review"
 USER_ID = "reviewer"
@@ -342,10 +345,23 @@ def saved_review(review_id: str):
 
 @app.get("/api/reviews/{review_id}/pdf")
 async def review_pdf(review_id: str):
-    from app.pdf import review_pdf as render  # imported lazily: heavy dependency
-
     meta, text = _get_review(review_id)
-    data = await run_in_threadpool(render, text, reviews.title(meta), reviews.subtitle(meta))
+    try:
+        from app.pdf import review_pdf as render  # imported lazily: heavy dependency
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"PDF support is not installed ({e}). Run `pip install -r requirements.txt` "
+                   "(needs markdown and xhtml2pdf>=0.2.23), then restart the server.",
+        ) from e
+    try:
+        data = await run_in_threadpool(render, text, reviews.title(meta), reviews.subtitle(meta))
+    except Exception as e:
+        log.exception("PDF rendering failed for review %s", review_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create the PDF ({type(e).__name__}: {e}). See the server log for details.",
+        ) from e
     return Response(
         data,
         media_type="application/pdf",
