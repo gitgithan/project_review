@@ -234,6 +234,67 @@ def list_commits(name: str, limit: int = 500, branch: str | None = None) -> list
     return commits
 
 
+def commit_graph(name: str, limit: int = 300) -> dict:
+    """Commits of all branches laid out in lanes, like GitHub's network graph.
+
+    Each branch (default first, then most recently updated) owns a lane holding
+    the commits on its first-parent chain that no earlier branch claimed, so
+    feature branches show only their own work. Remaining commits (e.g. from
+    merged and deleted branches) go to extra lanes, reusing a lane when the
+    time ranges don't overlap. x is the commit's position in date order,
+    oldest = 0.
+    """
+    commits = list_commits(name, limit=limit)
+    branches = list_branches(name)
+    by_sha = {c["sha"]: c for c in commits}
+    order = {c["sha"]: len(commits) - 1 - i for i, c in enumerate(commits)}  # x
+    lane_of: dict[str, int] = {}
+    lanes: list[dict] = []
+
+    def claim(start: str, lane: int) -> None:
+        sha = start
+        while sha in by_sha and sha not in lane_of:
+            lane_of[sha] = lane
+            parents = by_sha[sha]["parents"]
+            sha = parents[0] if parents else None
+
+    for b in branches:
+        if b["sha"] in by_sha and b["sha"] not in lane_of:
+            lanes.append({"branch": b["name"], "default": b["default"], "tip": b["sha"]})
+            claim(b["sha"], len(lanes) - 1)
+    branch_lanes = len(lanes)
+
+    # Unclaimed commits, newest first: give each chain the first free lane.
+    spans: dict[int, list[tuple[int, int]]] = {}
+    for c in commits:
+        if c["sha"] in lane_of:
+            continue
+        chain, sha = [], c["sha"]
+        while sha in by_sha and sha not in lane_of:
+            chain.append(sha)
+            parents = by_sha[sha]["parents"]
+            sha = parents[0] if parents else None
+        lo, hi = order[chain[-1]], order[chain[0]]
+        lane = next((i for i in range(branch_lanes, len(lanes))
+                     if all(hi < a or lo > b for a, b in spans.get(i, []))), None)
+        if lane is None:
+            lanes.append({"branch": None, "default": False, "tip": chain[0]})
+            lane = len(lanes) - 1
+        spans.setdefault(lane, []).append((lo, hi))
+        for sha in chain:
+            lane_of[sha] = lane
+
+    nodes = [
+        {
+            "sha": c["sha"], "short": c["short"], "subject": c["subject"],
+            "author": c["author"], "date": c["date"], "parents": c["parents"],
+            "refs": c["refs"], "x": order[c["sha"]], "lane": lane_of[c["sha"]],
+        }
+        for c in commits
+    ]
+    return {"commits": nodes, "lanes": lanes, "truncated": len(commits) >= limit}
+
+
 def commit_detail(name: str, rev: str) -> dict:
     """Commit metadata, full message and the list of files it changed."""
     path = project_path(name)

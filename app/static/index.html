@@ -30,6 +30,17 @@
       <button id="remove-btn" title="Remove this project's local clone">✕</button>
     </div>
 
+    <div id="network-panel" class="network-panel">
+      <div class="network-head">
+        <span class="field-label">Network</span>
+        <span id="network-info" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="network-full" title="Full screen (Esc to exit)">⛶</button>
+      </div>
+      <div id="network" class="network" title=""></div>
+      <div class="network-hint muted">Click a dot to open that commit · click a branch name to switch to it</div>
+    </div>
+
     <label class="field-label" for="branch-select">Branch</label>
     <div class="picker">
       <select id="branch-select"></select>

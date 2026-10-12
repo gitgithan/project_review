@@ -107,3 +107,32 @@ def test_branches(upstream):
     _git(upstream, "branch", "-q", "-D", "feature/login")
     repos.update_project("student")
     assert sorted(b["name"] for b in repos.list_branches("student")) == ["hotfix", "main"]
+
+
+def test_commit_graph_lanes(upstream):
+    # main: first, second, then merge of feature; feature/x branched from second.
+    _git(upstream, "checkout", "-q", "-b", "feature/x")
+    (upstream / "f.py").write_text("x = 1\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-qm", "feature work")
+    _git(upstream, "checkout", "-q", "-b", "wip", "main")
+    (upstream / "w.py").write_text("w = 1\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-qm", "wip work")
+    _git(upstream, "checkout", "-q", "main")
+    _git(upstream, "merge", "-q", "--no-ff", "-m", "merge feature", "feature/x")
+    _git(upstream, "branch", "-q", "-D", "feature/x")  # merged and deleted
+    repos.clone_project(f"file://{upstream}")
+
+    g = repos.commit_graph("student")
+    lane_names = [lane["branch"] for lane in g["lanes"]]
+    assert lane_names[0] == "main" and "wip" in lane_names
+    by_subject = {c["subject"]: c for c in g["commits"]}
+    main_lane = 0
+    assert by_subject["first"]["lane"] == main_lane
+    assert by_subject["merge feature"]["lane"] == main_lane
+    assert by_subject["wip work"]["lane"] == lane_names.index("wip")
+    # The deleted branch's commit gets an unnamed lane.
+    assert g["lanes"][by_subject["feature work"]["lane"]]["branch"] is None
+    xs = [c["x"] for c in g["commits"]]
+    assert sorted(xs) == list(range(len(xs))) and by_subject["first"]["x"] == 0

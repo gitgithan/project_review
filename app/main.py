@@ -76,6 +76,11 @@ def delete(name: str):
     return {"ok": True}
 
 
+@app.get("/api/projects/{name}/graph")
+def graph(name: str, limit: int = 300):
+    return _call(repos.commit_graph, name, min(max(limit, 10), 2000))
+
+
 @app.get("/api/projects/{name}/branches")
 def branches(name: str):
     return _call(repos.list_branches, name)

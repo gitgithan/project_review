@@ -172,6 +172,7 @@ async function updateProject() {
     await loadProjects();
     if (state.project === name) {
       await loadBranches(state.branch);
+      loadGraph();
       await loadCommits();
       const tip = state.commits[0]?.sha;
       if (tip && !state.commits.some((c) => c.sha === state.commit)) await selectCommit(tip);
@@ -191,7 +192,7 @@ async function deleteProject() {
     await api(`/api/projects/${enc(name)}`, { method: "DELETE" });
     state.selections = state.selections.filter((s) => s.project !== name);
     renderSelections();
-    Object.assign(state, { project: null, branch: ALL_BRANCHES, branches: [], commits: [], commit: null, detail: null, files: [], open: null });
+    Object.assign(state, { project: null, branch: ALL_BRANCHES, branches: [], commits: [], commit: null, detail: null, files: [], open: null, graph: null });
     await loadProjects();
     if (state.projects.length) {
       await selectProject(state.projects[0].name);
@@ -213,6 +214,7 @@ async function selectProject(name) {
   renderProjects();
   loadPastReviews();
   await loadBranches();
+  loadGraph();
   await loadCommits();
   if (state.commits.length && !state.commits.some((c) => c.sha === state.commit)) {
     await selectCommit(state.commits[0].sha);
@@ -251,8 +253,127 @@ function renderBranches() {
   sel.disabled = !state.project;
 }
 
+// ------------------------------------------------------------ network graph
+
+const NET = { dx: 18, dy: 22, r: 4.5, padX: 14, padY: 30, labelRoom: 150 };
+const NET_FULL = { dx: 30, dy: 32, r: 6, padX: 20, padY: 36, labelRoom: 200 };
+
+async function loadGraph() {
+  const project = state.project;
+  let graph = null;
+  if (project) {
+    try { graph = await api(`/api/projects/${enc(project)}/graph`); } catch (e) { setStatus(e.message, true); }
+  }
+  if (project !== state.project) return;
+  state.graph = graph;
+  state.graphBySha = new Map((graph?.commits || []).map((c) => [c.sha, c]));
+  renderNetwork(true);
+}
+
+function renderNetwork(scrollToEnd = false) {
+  const box = $("network");
+  const g = state.graph;
+  $("network-info").textContent = g ? `${g.lanes.filter((l) => l.branch).length} branches · ${g.commits.length}${g.truncated ? "+" : ""} commits` : "";
+  if (!g || !g.commits.length) {
+    box.replaceChildren(...(state.project ? [el("div", { class: "net-empty muted" }, "No commits.")] : []));
+    return;
+  }
+  const full = $("network-panel").classList.contains("fullscreen");
+  const { dx, dy, r, padX, padY, labelRoom } = full ? NET_FULL : NET;
+  const X = (c) => padX + c.x * dx;
+  const Y = (lane) => padY + lane * dy;
+  const maxX = g.commits.reduce((m, c) => Math.max(m, c.x), 0);
+  const width = padX * 2 + maxX * dx + labelRoom;
+  const height = padY * 2 + (g.lanes.length - 1) * dy;
+  const laneCls = (i) => `lane-${i % 8}`;
+  const currentLane = g.lanes.findIndex((l) => l.branch && l.branch === state.branch);
+  const parts = [];
+
+  // Date row: label the first commit of each day.
+  let lastDay = "";
+  for (const c of [...g.commits].sort((a, b) => a.x - b.x)) {
+    const d = new Date(c.date);
+    const day = isNaN(d) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (day && day !== lastDay) {
+      parts.push(`<text class="net-date" x="${X(c)}" y="12">${escapeHtml(day)}</text>`);
+      parts.push(`<line class="net-day" x1="${X(c)}" y1="16" x2="${X(c)}" y2="${height}"></line>`);
+      lastDay = day;
+    }
+  }
+  if (currentLane >= 0) {
+    parts.push(`<rect class="net-lane-bg current" x="0" y="${Y(currentLane) - dy / 2}" width="${width}" height="${dy}"></rect>`);
+  }
+  for (const c of g.commits) {
+    const cx = X(c), cy = Y(c.lane);
+    c.parents.forEach((psha, i) => {
+      const p = state.graphBySha.get(psha);
+      if (!p) {
+        // Parent is older than the commits shown: trail off to the left edge.
+        if (i === 0) parts.push(`<path class="net-edge net-outside ${laneCls(c.lane)}" d="M${padX - 10},${cy} L${cx},${cy}"></path>`);
+        return;
+      }
+      const px = X(p), py = Y(p.lane);
+      let d, cls;
+      if (p.lane === c.lane) {
+        d = `M${px},${py} L${cx},${cy}`; cls = laneCls(c.lane);
+      } else if (i === 0) {
+        // Branch-off: leave the parent's lane right away, then run along the child's lane.
+        d = `M${px},${py} C${px + dx / 2},${py} ${px + dx / 2},${cy} ${px + dx},${cy} L${cx},${cy}`; cls = laneCls(c.lane);
+      } else {
+        // Merge: run along the parent's lane, then join the merge commit.
+        d = `M${px},${py} L${cx - dx},${py} C${cx - dx / 2},${py} ${cx - dx / 2},${cy} ${cx},${cy}`; cls = laneCls(p.lane);
+      }
+      parts.push(`<path class="net-edge ${cls}" d="${d}"></path>`);
+    });
+  }
+  for (const c of g.commits) {
+    const tip = `${c.short} ${c.subject}\n${c.author} · ${fmtDate(c.date)}${c.refs.length ? `\n${c.refs.join(", ")}` : ""}`;
+    const sel = c.sha === state.commit ? " selected" : "";
+    parts.push(`<circle class="net-dot ${laneCls(c.lane)}${sel}" data-sha="${c.sha}" cx="${X(c)}" cy="${Y(c.lane)}" r="${sel ? r + 1.5 : r}"><title>${escapeHtml(tip)}</title></circle>`);
+  }
+  g.lanes.forEach((lane, i) => {
+    if (!lane.branch) return;
+    const tip = state.graphBySha.get(lane.tip);
+    if (!tip) return;
+    const cur = i === currentLane ? " current" : "";
+    parts.push(`<text class="net-label ${laneCls(i)}${cur}" data-branch="${escapeHtml(lane.branch)}" x="${X(tip) + 9}" y="${Y(i) + 4}">${escapeHtml(lane.branch)}${lane.default ? " ★" : ""}<title>Switch to ${escapeHtml(lane.branch)}</title></text>`);
+  });
+
+  const { scrollLeft, scrollTop } = box;
+  box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join("")}</svg>`;
+  if (scrollToEnd) {
+    box.scrollLeft = box.scrollWidth;
+    box.scrollTop = 0;
+  } else {
+    box.scrollLeft = scrollLeft;
+    box.scrollTop = scrollTop;
+  }
+}
+
+async function selectFromGraph(sha) {
+  const node = state.graphBySha?.get(sha);
+  if (!node) return;
+  if (!state.commits.some((c) => c.sha === sha)) {
+    // Switch to the branch whose lane holds the commit (or all branches).
+    const lane = state.graph.lanes[node.lane];
+    state.branch = lane?.branch ?? ALL_BRANCHES;
+    renderBranches();
+    await loadCommits();
+  }
+  await selectCommit(sha);
+  document.querySelector(`#commits li.active`)?.scrollIntoView({ block: "nearest" });
+}
+
+function setNetworkFull(on) {
+  $("network-panel").classList.toggle("fullscreen", on);
+  document.body.classList.toggle("has-fullscreen", on);
+  $("network-full").textContent = on ? "Minimize" : "⛶";
+  renderNetwork(true);
+}
+
 async function selectBranch(branch) {
   state.branch = branch;
+  renderBranches();
   await loadCommits();
   // Show the branch tip, so switching branches previews that branch's files.
   if (state.branch === branch && state.commits.length) await selectCommit(state.commits[0].sha);
@@ -276,6 +397,7 @@ async function loadCommits() {
 }
 
 function renderCommits() {
+  renderNetwork();
   const ul = $("commits");
   ul.replaceChildren();
   $("commit-count").textContent = state.project ? `(${state.commits.length})` : "";
@@ -933,6 +1055,7 @@ function showCard(card) {
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  if ($("network-panel").classList.contains("fullscreen")) return setNetworkFull(false);
   const full = document.querySelector(".review-card.fullscreen");
   if (full) full.querySelector(".review-head button").click();
 });
@@ -1085,6 +1208,16 @@ $("branch-select").addEventListener("change", (e) => selectBranch(e.target.value
 $("update-btn").addEventListener("click", updateProject);
 $("remove-btn").addEventListener("click", deleteProject);
 $("review-btn").addEventListener("click", startReview);
+$("network").addEventListener("click", (e) => {
+  const label = e.target.closest("[data-branch]");
+  const dot = e.target.closest("[data-sha]");
+  if (label) {
+    selectBranch(label.dataset.branch);
+  } else if (dot) {
+    selectFromGraph(dot.dataset.sha);
+  }
+});
+$("network-full").addEventListener("click", () => setNetworkFull(!$("network-panel").classList.contains("fullscreen")));
 $("past-reviews").addEventListener("change", (e) => openPastReview(e.target.value));
 document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((t) =>
   t.addEventListener("click", () => {

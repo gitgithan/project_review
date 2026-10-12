@@ -7,6 +7,12 @@ A local web app for reviewing student git projects with a Gemini agent built on
   Clone as many as you like; they all live side by side.
 - **Update** on a project fetches the latest commits. Clones are read-only mirrors,
   so the checkout is simply reset to the remote branch (force-pushes are fine).
+- A **Network** graph above the branch picker, like GitHub's Insights → Network: one
+  coloured lane per branch (default branch ★ on top), commits left to right by date with
+  day markers, curves where branches split off and merge, and unnamed lanes for commits
+  from merged-and-deleted branches. Hover a dot for the commit, click it to open that
+  commit (switching branch if needed), click a branch name to switch to it, or expand it
+  to full screen. Shows the latest 300 commits.
 - Pick the project from a dropdown (it remembers the last one) and switch **branches**
   with the branch dropdown, default branch first, or "All branches". Switching
   branches jumps to that branch's latest commit so you preview its files.
