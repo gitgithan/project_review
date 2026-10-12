@@ -145,6 +145,38 @@ def _policy() -> ResourceAccessPolicy:
                                 extra_roots=[Path(d) for d in dirs[1:]])
 
 
+def _column_widths(html: str) -> str:
+    """Size table columns by their average text length (xhtml2pdf splits evenly)."""
+
+    def size_table(m: re.Match) -> str:
+        table = m.group(0)
+        rows = re.findall(r"<tr>(.*?)</tr>", table, flags=re.S)
+        lengths: list[list[int]] = []
+        for row in rows:
+            cells = re.findall(r"<t[dh](?:\s[^>]*)?>(.*?)</t[dh]>", row, flags=re.S)
+            for i, cell in enumerate(cells):
+                text = re.sub(r"<[^>]+>", "", cell)
+                while len(lengths) <= i:
+                    lengths.append([])
+                lengths[i].append(len(html_lib.unescape(text).strip()))
+        if len(lengths) < 2:
+            return table
+        # Square root damps very long cells; the floor keeps short columns readable.
+        weights = [max(4.0, (sum(col) / len(col)) ** 0.5 * 3) for col in lengths]
+        total = sum(weights)
+        widths = [f"{100 * w / total:.1f}%" for w in weights]
+        counter = iter(widths)
+
+        def set_width(th: re.Match) -> str:
+            width = next(counter, None)
+            return f'<th style="width: {width};">' if width else th.group(0)
+
+        head, sep, rest = table.partition("</thead>")
+        return re.sub(r"<th(?:\s[^>]*)?>", set_width, head) + sep + rest
+
+    return re.sub(r"<table>.*?</table>", size_table, html, flags=re.S)
+
+
 def _css() -> str:
     fonts = _fonts()
     faces = ""
@@ -170,6 +202,7 @@ h1 {{ font-size: 17pt; margin-bottom: 2pt; }}
 h2 {{ font-size: 13pt; margin-top: 14pt; padding-bottom: 2pt; border-bottom: 0.75pt solid #d0d7de; }}
 h3 {{ font-size: 11pt; margin-top: 10pt; }}
 h4 {{ font-size: 10pt; margin-top: 8pt; }}
+h5 {{ font-size: 10pt; margin-top: 8pt; color: #0969da; }}
 .meta {{ color: #656d76; font-size: 8.5pt; margin-bottom: 8pt; }}
 table {{ width: 100%; border: 0.5pt solid #d0d7de; margin: 6pt 0; }}
 th {{ background-color: #f6f8fa; font-weight: bold; text-align: left; }}
@@ -187,7 +220,7 @@ def review_pdf(markdown_text: str, title: str, meta: str) -> bytes:
         _normalize_lists(_clean_text(markdown_text)),
         extensions=["tables", "fenced_code", "sane_lists"],
     )
-    body = _breakable_table_code(body)
+    body = _column_widths(_breakable_table_code(body))
     doc = (
         "<html><head><meta charset='utf-8'><style>" + _css() + "</style></head><body>"
         f"<h1>{html_lib.escape(_clean_text(title))}</h1>"

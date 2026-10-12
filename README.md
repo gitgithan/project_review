@@ -156,8 +156,11 @@ student's project is executed; the review is static:
    brief in `review_agent/prompts/capstone_review.md`. That brief covers ADK
    orchestration, pipeline and infrastructure, scalability, robustness, and Google Cloud
    deployment (considerations and options if not yet deployed). It asks for four
-   sections: a scalability overview, a findings table, a 5-minute presentation outline,
-   and deployment. The agent can still open omitted files with its read-only tools.
+   sections: a scalability overview, findings, a 5-minute presentation outline, and
+   deployment. Findings and deployment advice are split into **Before the Demo** (a
+   prioritised list with effort estimates that fits the team's one remaining working
+   day) and **After the Bootcamp** (larger refactors, migrations and design
+   alternatives). Change the "Timeline Context" in the brief for other cohorts. The agent can still open omitted files with its read-only tools.
    Edit the brief to change what reviews focus on.
 
 Reviews are saved in `reviews/` (git-ignored) as Markdown + JSON with the commit, model
