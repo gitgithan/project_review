@@ -238,3 +238,63 @@ body.resizing iframe { pointer-events: none; }
 .ctx-bar span.warn { background: #bf8700; }
 .ctx-bar span.full { background: var(--error); }
 .turn-usage { font-size: 11px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- reviews */
+.review-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.review-actions select {
+  font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 6px 10px; }
+button.primary:disabled { background: var(--panel); border-color: var(--border); color: var(--muted); }
+
+a.button {
+  display: inline-block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+a.button:hover { border-color: var(--accent); }
+a.button.disabled { opacity: .5; pointer-events: none; }
+
+.review-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  margin-bottom: 12px;
+  background: var(--bg);
+}
+.review-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.review-head button { white-space: nowrap; }
+.review-title { min-width: 0; overflow-wrap: anywhere; }
+.review-sub { font-size: 12px; margin: 2px 0 6px; }
+.review-usage { margin: 0 -10px 6px; border-top: 1px solid var(--border); }
+.review-progress { font-size: 12px; color: var(--muted); }
+.review-progress > div { margin: 2px 0; }
+.review-body { font-size: 13px; overflow-wrap: break-word; }
+
+.review-card.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  overflow: auto;
+  padding: 16px max(16px, calc((100vw - 1400px) / 2));
+}
+.review-card.fullscreen .review-body { font-size: 14px; }
+.review-card.fullscreen .review-usage { margin: 0 0 8px; border: 1px solid var(--border); border-radius: 6px; }
+body.has-fullscreen { overflow: hidden; }
+
+.md .table-wrap { overflow-x: auto; margin: 8px 0; }
+.md table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 6px; vertical-align: top; text-align: left; }
+.md th { background: var(--panel); }
+.review-card:not(.fullscreen) .md table { min-width: 720px; }
+.md pre { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow-x: auto; font-size: 12px; }
+.md code { font-family: var(--mono); font-size: 12px; }

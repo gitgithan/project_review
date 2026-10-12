@@ -35,6 +35,12 @@
       <select id="branch-select"></select>
     </div>
 
+    <div class="review-actions">
+      <button id="review-btn" class="primary" disabled
+        title="Static architecture review of the selected branch: reads all source files, samples data files">Review this branch</button>
+      <select id="past-reviews" disabled><option value="">No past reviews</option></select>
+    </div>
+
     <h3>Commits <span id="commit-count" class="muted"></span></h3>
     <ul id="commits" class="list commits"></ul>
   </aside>

@@ -140,6 +140,7 @@ function renderProjects() {
   sel.disabled = !has;
   $("update-btn").disabled = !state.project;
   $("remove-btn").disabled = !state.project;
+  $("review-btn").disabled = !state.project || !!state.reviewing;
 }
 
 async function cloneProject(url) {
@@ -210,6 +211,7 @@ async function selectProject(name) {
   state.project = name;
   try { localStorage.setItem(LAST_PROJECT_KEY, name); } catch (_) {}
   renderProjects();
+  loadPastReviews();
   await loadBranches();
   await loadCommits();
   if (state.commits.length && !state.commits.some((c) => c.sha === state.commit)) {
@@ -704,6 +706,11 @@ function turnUsageText(t) {
 function renderMarkdown(node, text) {
   if (window.marked && window.DOMPurify) {
     node.innerHTML = DOMPurify.sanitize(marked.parse(text));
+    node.querySelectorAll("table").forEach((t) => {
+      const wrap = el("div", { class: "table-wrap" });
+      t.replaceWith(wrap);
+      wrap.append(t);
+    });
     if (window.hljs) {
       node.querySelectorAll("pre code").forEach((c) => {
         const lang = (c.className.match(/language-([\w+#-]+)/) || [])[1];
@@ -812,6 +819,192 @@ function wireExamples() {
   );
 }
 
+// ------------------------------------------------------------ reviews
+
+// POST and read an NDJSON event stream, calling onEvent for each event.
+async function streamEvents(url, body, onEvent) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (_) {}
+    throw new Error(detail);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) onEvent(JSON.parse(line));
+    }
+  }
+}
+
+// A usage panel like the chat header's, for one review run.
+function usagePanel() {
+  const f = {};
+  const val = (key, text = "0") => (f[key] = el("b", {}, text));
+  const fill = el("span");
+  const node = el("div", { class: "usage review-usage" },
+    el("div", { class: "usage-row" },
+      el("span", { title: "Tokens for this review: input sent (↑) and output incl. thinking (↓)" }, "Tokens: ", val("in", "↑ 0"), " ", val("out", "↓ 0")),
+      el("span", { title: "Input tokens served from Gemini's context cache" }, "Cache: ", val("cache")),
+      el("span", { class: "spacer" }),
+      (f.model = el("span", { class: "muted" }, "")),
+    ),
+    el("div", { class: "usage-row", title: "Size of the last request vs. the model's context window" },
+      el("span", {}, "Context:"), val("ctx"), el("span", { class: "ctx-bar" }, fill), (f.max = el("span", { class: "muted" }, "")),
+    ),
+    el("div", { class: "usage-row" },
+      el("span", { title: "Estimated cost of this review from pricing.json" }, "API Cost: ", val("cost", "$0.0000")),
+      el("span", { class: "spacer" }),
+      (f.calls = el("span", { class: "muted" }, "")),
+    ),
+  );
+  const update = (t) => {
+    if (!t) return;
+    f.in.textContent = `↑ ${fmtTokens(t.input)}`;
+    f.out.textContent = `↓ ${fmtTokens(t.output + t.thoughts)}`;
+    f.cache.textContent = fmtTokens(t.cached);
+    f.cost.textContent = fmtCost(t);
+    f.model.textContent = t.model || "";
+    f.calls.textContent = t.calls ? `${t.calls} model call${t.calls === 1 ? "" : "s"}` : "";
+    f.ctx.textContent = fmtTokens(t.context_tokens || 0);
+    f.max.textContent = t.context_window ? fmtTokens(t.context_window) : "";
+    const pct = t.context_window ? Math.min(100, (100 * (t.context_tokens || 0)) / t.context_window) : 0;
+    fill.style.width = `${pct}%`;
+    fill.className = pct > 80 ? "full" : pct > 50 ? "warn" : "";
+  };
+  return { node, update };
+}
+
+// A review card in the chat pane; it can expand to full screen and back.
+function reviewCard(heading) {
+  const title = el("strong", { class: "review-title" }, heading);
+  const subtitle = el("div", { class: "review-sub muted" });
+  const download = el("a", { class: "button disabled", "aria-disabled": "true", title: "Download this review as a PDF" }, "Download Review");
+  const expand = el("button", { title: "Full screen (Esc to exit)" }, "⛶ Full screen");
+  const progress = el("div", { class: "review-progress" });
+  const body = el("div", { class: "review-body md" });
+  const usageBox = usagePanel();
+  const card = el("div", { class: "review-card" },
+    el("div", { class: "review-head" }, title, el("span", { class: "spacer" }), download, expand),
+    subtitle, usageBox.node, progress, body,
+  );
+  const setFull = (on) => {
+    card.classList.toggle("fullscreen", on);
+    document.body.classList.toggle("has-fullscreen", on);
+    expand.textContent = on ? "Minimize" : "⛶ Full screen";
+    if (!on) card.scrollIntoView({ block: "nearest" });
+  };
+  expand.addEventListener("click", () => setFull(!card.classList.contains("fullscreen")));
+  card.addEventListener("keydown", (e) => { if (e.key === "Escape") setFull(false); });
+  return {
+    card, body, progress, subtitle, usage: usageBox,
+    ready(meta, markdown, heading2, sub) {
+      if (heading2) title.textContent = heading2;
+      if (sub) subtitle.textContent = sub;
+      renderMarkdown(body, markdown);
+      download.href = `/api/reviews/${enc(meta.id)}/pdf`;
+      download.setAttribute("download", "");
+      download.classList.remove("disabled");
+      download.removeAttribute("aria-disabled");
+      usageBox.update(meta.usage && meta.usage.calls ? meta.usage : null);
+    },
+    log(text, cls = "") { progress.append(el("div", { class: cls }, text)); },
+  };
+}
+
+function showCard(card) {
+  const out = $("output");
+  out.querySelector(".hint")?.remove();
+  out.append(card);
+  card.scrollIntoView({ block: "start" });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const full = document.querySelector(".review-card.fullscreen");
+  if (full) full.querySelector(".review-head button").click();
+});
+
+async function startReview() {
+  if (!state.project || state.reviewing) return;
+  const project = state.project;
+  const branch = state.branch || null;
+  const where = `${project}${branch ? ` @ ${branch}` : " (HEAD)"}`;
+  const ui = reviewCard(`Review · ${where}`);
+  ui.subtitle.textContent = "Static architecture review: reads all source files, samples data files.";
+  showCard(ui.card);
+
+  state.reviewing = true;
+  const btn = $("review-btn");
+  btn.disabled = true;
+  btn.textContent = "Reviewing…";
+  let saved = false;
+  try {
+    await streamEvents("/api/review", { project, branch }, (ev) => {
+      if (ev.type === "status") ui.log(ev.text);
+      else if (ev.type === "tool") ui.log(`${ev.name}(${describeArgs(ev.args)})`, "tool-call");
+      else if (ev.type === "error") ui.log(ev.text, "msg-error");
+      else if (ev.type === "usage") {
+        ui.usage.update(ev.turn);
+        $("u-all").textContent = fmtCost(ev.all_time);
+      } else if (ev.type === "review") {
+        saved = true;
+        ui.progress.replaceChildren();
+        ui.ready(ev.meta, ev.markdown, ev.title, ev.subtitle);
+        loadPastReviews();
+      }
+    });
+    if (!saved) ui.log("The model returned no review.", "msg-error");
+  } catch (e) {
+    ui.log(e.message, "msg-error");
+  } finally {
+    state.reviewing = false;
+    btn.disabled = !state.project;
+    btn.textContent = "Review this branch";
+  }
+}
+
+async function loadPastReviews() {
+  const sel = $("past-reviews");
+  const project = state.project;
+  let list = [];
+  if (project) {
+    try { list = await api(`/api/reviews?project=${enc(project)}`); } catch (_) {}
+  }
+  if (project !== state.project) return;
+  sel.replaceChildren(el("option", { value: "" }, list.length ? `Past reviews (${list.length})` : "No past reviews"));
+  for (const m of list) {
+    const cost = m.usage && m.usage.calls ? ` · ${fmtCost(m.usage)}` : "";
+    sel.append(el("option", { value: m.id }, `${m.branch || "HEAD"} · ${m.created.replace("T", " ").slice(0, 16)}${cost}`));
+  }
+  sel.disabled = !list.length;
+}
+
+async function openPastReview(id) {
+  if (!id) return;
+  $("past-reviews").value = "";
+  try {
+    const r = await api(`/api/reviews/${enc(id)}`);
+    const ui = reviewCard(r.title);
+    ui.ready(r.meta, r.markdown, r.title, r.subtitle);
+    showCard(ui.card);
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
 // ------------------------------------------------------------ resizable columns
 
 const COLUMN_DEFAULTS = { 1: 290, 2: 260, 4: 420 };
@@ -891,6 +1084,8 @@ $("project-select").addEventListener("change", (e) => { if (e.target.value) sele
 $("branch-select").addEventListener("change", (e) => selectBranch(e.target.value));
 $("update-btn").addEventListener("click", updateProject);
 $("remove-btn").addEventListener("click", deleteProject);
+$("review-btn").addEventListener("click", startReview);
+$("past-reviews").addEventListener("change", (e) => openPastReview(e.target.value));
 document.querySelectorAll(".file-tabs .tab[data-mode]").forEach((t) =>
   t.addEventListener("click", () => {
     state.fileMode = t.dataset.mode;
