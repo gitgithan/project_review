@@ -14,15 +14,16 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from fastapi import FastAPI, HTTPException  # noqa: E402
-from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
+from fastapi.concurrency import run_in_threadpool  # noqa: E402
+from fastapi.responses import FileResponse, Response, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from google.adk.runners import Runner  # noqa: E402
 from google.adk.sessions import InMemorySessionService  # noqa: E402
 from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
-from app import usage  # noqa: E402
-from review_agent import repos  # noqa: E402
+from app import reviews, usage  # noqa: E402
+from review_agent import repos, review  # noqa: E402
 from review_agent.agent import MODEL, root_agent  # noqa: E402
 
 APP_NAME = "project_review"
@@ -36,6 +37,7 @@ MAX_CONTEXT_CHARS = 60_000
 app = FastAPI(title="Student Project Reviewer")
 session_service = InMemorySessionService()
 runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
+review_runner = Runner(app_name=APP_NAME, agent=review.review_agent, session_service=session_service)
 tracker = usage.Tracker()
 
 
@@ -167,6 +169,54 @@ def _build_message(req: AskRequest) -> str:
     return "[Context]\n" + "\n".join(ctx) + "\n[/Context]\n\n" + req.question
 
 
+def _line(obj: dict) -> str:
+    return json.dumps(obj) + "\n"
+
+
+async def _new_session() -> str:
+    session_id = str(uuid.uuid4())
+    await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+    return session_id
+
+
+async def _agent_events(agent_runner: Runner, session_id: str, message: types.Content):
+    """Run an agent and yield UI events: tool calls, text, usage and errors.
+
+    Text events carry final=True when they belong to the agent's final answer.
+    """
+    last_error = None
+    turn = {**usage.empty(), "context_tokens": 0, "context_window": None, "model": MODEL}
+    try:
+        async for event in agent_runner.run_async(
+            user_id=USER_ID, session_id=session_id, new_message=message
+        ):
+            if event.error_message:
+                last_error = event.error_message
+                yield {"type": "error", "text": event.error_message}
+            if event.usage_metadata and not event.partial:
+                model = event.model_version or MODEL
+                if not usage.price_for(model):
+                    model = MODEL
+                call = usage.call_usage(model, event.usage_metadata)
+                tracker.record(session_id, call)
+                usage.add(turn, call)
+                turn.update(context_tokens=call["context_tokens"],
+                            context_window=call["context_window"], model=model)
+                yield {"type": "usage", "turn": dict(turn), **tracker.summary(session_id)}
+            if not event.content or not event.content.parts:
+                continue
+            final = event.is_final_response()
+            for part in event.content.parts:
+                if part.function_call:
+                    yield {"type": "tool", "name": part.function_call.name,
+                           "args": part.function_call.args or {}}
+                elif part.text and not part.thought and event.author != "user":
+                    yield {"type": "text", "text": part.text, "final": final}
+    except Exception as e:  # surface auth/quota problems in the UI
+        if str(e) != last_error:
+            yield {"type": "error", "text": f"{type(e).__name__}: {e}"}
+
+
 @app.post("/api/ask")
 async def ask(req: AskRequest):
     if not req.question.strip():
@@ -176,50 +226,15 @@ async def ask(req: AskRequest):
     if not session_id or not await session_service.get_session(
         app_name=APP_NAME, user_id=USER_ID, session_id=session_id
     ):
-        session_id = str(uuid.uuid4())
-        await session_service.create_session(
-            app_name=APP_NAME, user_id=USER_ID, session_id=session_id
-        )
+        session_id = await _new_session()
 
     message = types.Content(role="user", parts=[types.Part(text=_build_message(req))])
 
     async def stream():
-        yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
-        last_error = None
-        turn = {**usage.empty(), "context_tokens": 0, "context_window": None, "model": MODEL}
-        try:
-            async for event in runner.run_async(
-                user_id=USER_ID, session_id=session_id, new_message=message
-            ):
-                if event.error_message:
-                    last_error = event.error_message
-                    yield json.dumps({"type": "error", "text": event.error_message}) + "\n"
-                if event.usage_metadata and not event.partial:
-                    model = event.model_version or MODEL
-                    if not usage.price_for(model):
-                        model = MODEL
-                    call = usage.call_usage(model, event.usage_metadata)
-                    tracker.record(session_id, call)
-                    usage.add(turn, call)
-                    turn.update(context_tokens=call["context_tokens"],
-                                context_window=call["context_window"], model=model)
-                    yield json.dumps({"type": "usage", "turn": turn,
-                                      **tracker.summary(session_id)}) + "\n"
-                if not event.content or not event.content.parts:
-                    continue
-                for part in event.content.parts:
-                    if part.function_call:
-                        yield json.dumps({
-                            "type": "tool",
-                            "name": part.function_call.name,
-                            "args": part.function_call.args or {},
-                        }) + "\n"
-                    elif part.text and not part.thought and event.author != "user":
-                        yield json.dumps({"type": "text", "text": part.text}) + "\n"
-        except Exception as e:  # surface auth/quota problems in the UI
-            if str(e) != last_error:
-                yield json.dumps({"type": "error", "text": f"{type(e).__name__}: {e}"}) + "\n"
-        yield json.dumps({"type": "done"}) + "\n"
+        yield _line({"type": "session", "session_id": session_id})
+        async for ev in _agent_events(runner, session_id, message):
+            yield _line(ev)
+        yield _line({"type": "done"})
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
@@ -227,6 +242,97 @@ async def ask(req: AskRequest):
 @app.get("/api/usage")
 def get_usage(session_id: str | None = None):
     return {"model": MODEL, **tracker.summary(session_id)}
+
+
+# ---------------------------------------------------------------- reviews
+
+
+class ReviewRequest(BaseModel):
+    project: str
+    branch: str | None = None
+
+
+@app.post("/api/review")
+async def start_review(req: ReviewRequest):
+    """Static architecture review of a branch tip (or HEAD), streamed as NDJSON."""
+
+    def resolve() -> str:
+        if req.branch:
+            commits = repos.list_commits(req.project, limit=1, branch=req.branch)
+            if not commits:
+                raise repos.RepoError(f"Branch {req.branch} has no commits")
+            return commits[0]["sha"]
+        return repos.resolve_commit(req.project, "HEAD")
+
+    sha = await run_in_threadpool(_call, resolve)
+
+    async def stream():
+        yield _line({"type": "status", "text": f"Collecting files at {sha[:7]}…"})
+        try:
+            pack = await run_in_threadpool(review.collect, req.project, sha, req.branch)
+        except repos.RepoError as e:
+            yield _line({"type": "error", "text": str(e)})
+            yield _line({"type": "done"})
+            return
+        st = pack.stats
+        yield _line({"type": "pack", "commit": sha, "stats": st})
+        yield _line({"type": "status", "text":
+                     f"Read {st['source_included']} source files"
+                     + (f" ({st['source_omitted']} too big to include)" if st["source_omitted"] else "")
+                     + f", sampled {st['data_sampled']} of {st['data_files']} data files, "
+                     f"skipped {st['skipped_files']}. Reviewing with {MODEL}…"})
+
+        session_id = await _new_session()
+        message = types.Content(role="user", parts=[types.Part(text=pack.message)])
+        final_parts, last_usage = [], None
+        async for ev in _agent_events(review_runner, session_id, message):
+            if ev["type"] == "text" and ev.get("final"):
+                final_parts.append(ev["text"])
+            if ev["type"] == "usage":
+                last_usage = ev["turn"]
+            yield _line(ev)
+
+        text = "\n\n".join(final_parts).strip()
+        if text:
+            meta = await run_in_threadpool(
+                reviews.save, req.project, req.branch, sha, (last_usage or {}).get("model", MODEL),
+                text, st, last_usage or {})
+            yield _line({"type": "review", "meta": meta, "markdown": text,
+                         "title": reviews.title(meta), "subtitle": reviews.subtitle(meta)})
+        yield _line({"type": "done"})
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+def _get_review(review_id: str):
+    try:
+        return reviews.get(review_id)
+    except reviews.ReviewNotFound as e:
+        raise HTTPException(status_code=404, detail="Review not found") from e
+
+
+@app.get("/api/reviews")
+def list_saved_reviews(project: str | None = None):
+    return reviews.list_reviews(project)
+
+
+@app.get("/api/reviews/{review_id}")
+def saved_review(review_id: str):
+    meta, text = _get_review(review_id)
+    return {"meta": meta, "markdown": text, "title": reviews.title(meta), "subtitle": reviews.subtitle(meta)}
+
+
+@app.get("/api/reviews/{review_id}/pdf")
+async def review_pdf(review_id: str):
+    from app.pdf import review_pdf as render  # imported lazily: heavy dependency
+
+    meta, text = _get_review(review_id)
+    data = await run_in_threadpool(render, text, reviews.title(meta), reviews.subtitle(meta))
+    return Response(
+        data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{reviews.pdf_filename(meta)}"'},
+    )
 
 
 # ---------------------------------------------------------------- UI

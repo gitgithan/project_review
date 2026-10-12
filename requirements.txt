@@ -1,3 +1,5 @@
 google-adk>=1.0.0
 fastapi
 uvicorn[standard]
+markdown
+xhtml2pdf>=0.2.23

@@ -11,3 +11,6 @@ venv/
 
 # Local token/cost ledger
 usage_log.jsonl
+
+# Saved reviews of student work
+reviews/
