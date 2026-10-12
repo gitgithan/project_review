@@ -62,7 +62,7 @@ Split all code and infrastructure findings into the two horizons from the Timeli
 ##### 2A. Before the Demo (fits in 1 working day)
 List at most 6 items, ordered by priority (impact on the demo and on the architecture story, versus effort and risk). The total effort must fit in about 6 hours.
 
-| Priority | Category | ADK / Tool Context | Current Pattern & Risk | Quick Fix | Effort | Why It Matters for the Demo |
+| Priority | Category | Component | Current Pattern & Risk | Quick Fix | Effort | Why It Matters for the Demo |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | *[1, 2, ...]* | *[Category]* | *[e.g., ADK Agent / Docker Compose]* | *[Current code pattern and structural risk]* | *[Concrete, small change; cite files]* | *[e.g., 30 min]* | *[What it de-risks or how it strengthens the pitch]* |
 
@@ -71,7 +71,7 @@ If something important is too big to fix in time, say how to *frame* it honestly
 ##### 2B. After the Bootcamp
 Present the remaining findings, including all larger refactors and design alternatives:
 
-| Category | ADK / Tool Context | Current Pattern & Risk | Estimated Scalability Limit | Recommended Design / Fix | Architectural Rationale & Trade-offs |
+| Category | Component | Current Pattern & Risk | Estimated Scalability Limit | Recommended Design / Fix | Architectural Rationale & Trade-offs |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | *[Category]* | *[e.g., ADK Agent / BigQuery / Airflow]* | *[Current code pattern and structural risk]* | *[When/how it fails as scale increases]* | *[Suggested fix or alternative design]* | *[Why this refactoring improves performance, resilience, or cost]* |
 
