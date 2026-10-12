@@ -219,5 +219,5 @@ Conversations are kept in memory and reset when the server restarts; use
 ## Tests
 
 ```bash
-pip install pytest && pytest
+pytest
 ```

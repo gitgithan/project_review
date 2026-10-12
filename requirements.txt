@@ -3,3 +3,7 @@ fastapi
 uvicorn[standard]
 markdown
 xhtml2pdf>=0.2.23
+
+# Tests (pytest; httpx is needed by FastAPI's TestClient)
+pytest
+httpx
