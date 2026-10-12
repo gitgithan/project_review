@@ -152,33 +152,6 @@ SECRET_PATTERNS = [
 ]
 PLACEHOLDER = re.compile(r"(?i)(your|example|changeme|xxx|placeholder|dummy|<|\{\{|\$\{|os\.environ|getenv)")
 
-TECH_PATTERNS = [
-    ("PySpark", r"\bpyspark\b|SparkSession"),
-    ("Pandas", r"\bimport pandas\b|\bpd\.read_"),
-    ("Polars", r"\bimport polars\b|\bpl\.read_"),
-    ("DuckDB", r"\bduckdb\b"),
-    ("BigQuery", r"google\.cloud\.bigquery|\bbigquery\b"),
-    ("dbt", r"dbt_project\.yml|\{\{\s*ref\(|\bdbt\b"),
-    ("Airflow", r"\bairflow\b|\bDAG\("),
-    ("Dagster", r"\bdagster\b"),
-    ("Prefect", r"\bprefect\b"),
-    ("Kafka", r"\bkafka\b"),
-    ("Pub/Sub", r"pubsub_v1|\bpubsub\b"),
-    ("Delta / Iceberg", r"\bdelta\b.*table|\biceberg\b"),
-    ("PostgreSQL", r"psycopg|postgres"),
-    ("SQLAlchemy", r"\bsqlalchemy\b"),
-    ("GCS", r"google\.cloud\.storage|gs://"),
-    ("S3", r"\bboto3\b|s3://"),
-    ("Terraform", r"\bresource\s+\"|\bterraform\s*\{"),
-    ("Docker", r"^FROM\s"),
-    ("Streamlit", r"\bstreamlit\b"),
-    ("FastAPI", r"\bfastapi\b"),
-    ("Google ADK (agents)", r"google\.adk|google-adk"),
-    ("LangChain / LangGraph", r"\blangchain|\blanggraph"),
-    ("LLM API client", r"google\.genai|google\.generativeai|vertexai\.generative_models|\bopenai\b|\banthropic\b"),
-    ("Requests/HTTP client", r"\brequests\.(get|post)|\bhttpx\b|\baiohttp\b"),
-]
-
 # Code patterns that often matter for data-pipeline scalability and re-runs.
 DATA_PATTERNS = [
     ("Collect to one machine (toPandas/collect)", r"\.toPandas\(|\.collect\(\)"),
@@ -248,15 +221,11 @@ def _line_of(text: str, index: int) -> int:
 
 def static_checks(sources: dict[str, str]) -> dict:
     """Code-based findings over the full source text (never truncated)."""
-    tech = Counter()
     patterns = Counter()
     pattern_where: dict[str, list[str]] = {}
     secrets, infra, partition_hits = [], [], []
 
     for path, text in sources.items():
-        for label, pat in TECH_PATTERNS:
-            if re.search(pat, text, re.IGNORECASE | re.MULTILINE):
-                tech[label] += 1
         if path.endswith((".py", ".ipynb", ".sql", ".scala", ".r")):
             for label, pat in DATA_PATTERNS:
                 found = list(re.finditer(pat, text, re.IGNORECASE))
@@ -295,7 +264,6 @@ def static_checks(sources: dict[str, str]) -> dict:
                 infra.append(f"{path}:{_line_of(text, m.start())} open-ended version `{m.group(1)}`")
 
     return {
-        "technologies": sorted(tech, key=lambda k: -tech[k]),
         "data_patterns": {k: {"count": patterns[k], "where": pattern_where.get(k, [])[:8]} for k in patterns},
         "possible_secrets": secrets[:30],
         "infra": infra[:40],

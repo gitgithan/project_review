@@ -158,8 +158,7 @@ student's project is executed; the review is static:
    - all source files are read in full; notebooks keep their cells but drop outputs;
    - data files are only **sampled**: the first 15 lines of one file per type and folder
      (up to 6), plus counts and sizes for the rest, to save tokens;
-   - code-based checks run over all source: technologies used (including any LLM or
-     agent frameworks, if present), data-pipeline patterns (`toPandas()`/`collect()`,
+   - code-based checks run over all source: data-pipeline patterns (`toPandas()`/`collect()`,
      row-by-row Pandas, full-table overwrites vs. incremental writes, retries,
      schedules), unpinned images/requirements, missing health checks and CPU/memory limits in
      Docker Compose, literal passwords, likely secrets, `ds`/partition parameters,

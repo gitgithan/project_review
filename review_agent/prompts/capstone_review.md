@@ -26,7 +26,7 @@ Evaluate the project across the following five core dimensions:
 #### 1. Tool Selection, Engine Suitability & Orchestration
 - **Right Tool for the Job:** Flag instances where heavy compute engines are used unnecessarily (e.g., PySpark clusters for megabyte-scale datasets where SQL/DuckDB suffices) or missing streaming/batch engine choices.
 - **Orchestration & Compute Placement Anti-Patterns:** Check whether heavy transformations run row-by-row in Python/Pandas in-memory instead of being pushed down to specialized engines (SQL, dbt, BigQuery, Spark, DuckDB). Review orchestration (Airflow/Prefect/Dagster DAGs, cron, scripts) for task granularity, dependencies between steps, retries, and large payloads passed between tasks (e.g. XComs).
-- **LLM / Agent Components (only if present):** If the project contains LLM calls or an agent framework (the static analysis lists any detected), review them like any other component: whether the model is doing data transformations that belong in an engine, how much data is pushed into prompts or session state, and cost, latency and rate limits. If there are none, skip this point entirely.
+- **LLM / Agent Components (only if present):** If the project contains LLM calls or an agent framework (check its imports and dependencies), review them like any other component: whether the model is doing data transformations that belong in an engine, how much data is pushed into prompts or session state, and cost, latency and rate limits. If there are none, skip this point entirely.
 
 #### 2. Pipeline, Storage & Infrastructure Configuration
 - **Storage & Schema Paradigms:** Evaluate data modeling (Star Schema, OBT, Delta/Iceberg) against workload read/write access patterns.
