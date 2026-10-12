@@ -65,10 +65,15 @@ gcloud auth application-default login
 ```
 GOOGLE_GENAI_USE_VERTEXAI=TRUE
 GOOGLE_CLOUD_PROJECT=your-gcp-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLOUD_LOCATION=global
 ```
 
-Make sure the Vertex AI API is enabled on that project.
+Make sure the Vertex AI API is enabled on that project. Use `global`: Gemini 3.x models
+such as the default `gemini-3.1-flash-lite` are served from the global endpoint, and a
+regional location like `us-central1` fails with *"Publisher model … was not found or
+your project does not have access to it"*. If the model is still not found, check its
+exact ID in Vertex AI Model Garden (it may be listed as `gemini-3.1-flash-lite-preview`)
+and set `REVIEW_MODEL` to it.
 
 ### Option B: Gemini API key (free tier, no Google Cloud project)
 

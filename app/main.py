@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -184,6 +185,18 @@ async def _new_session() -> str:
     return session_id
 
 
+def _explain_error(text: str) -> str:
+    """Add a fix hint to errors that are usually configuration problems."""
+    if "NOT_FOUND" in text and "models/" in text:
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "")
+        hint = (f"\n\nThe model `{MODEL}` is not available" + (f" in `{location}`" if location else "")
+                + ". Gemini 3.x models are served from the global endpoint: set "
+                "GOOGLE_CLOUD_LOCATION=global in .env and restart the server. If it is still "
+                "not found, set REVIEW_MODEL to the exact model ID shown in Vertex AI Model Garden.")
+        return text + hint
+    return text
+
+
 async def _agent_events(agent_runner: Runner, session_id: str, message: types.Content):
     """Run an agent and yield UI events: tool calls, text, usage and errors.
 
@@ -197,7 +210,7 @@ async def _agent_events(agent_runner: Runner, session_id: str, message: types.Co
         ):
             if event.error_message:
                 last_error = event.error_message
-                yield {"type": "error", "text": event.error_message}
+                yield {"type": "error", "text": _explain_error(event.error_message)}
             if event.usage_metadata and not event.partial:
                 model = event.model_version or MODEL
                 if not usage.price_for(model):
@@ -219,7 +232,7 @@ async def _agent_events(agent_runner: Runner, session_id: str, message: types.Co
                     yield {"type": "text", "text": part.text, "final": final}
     except Exception as e:  # surface auth/quota problems in the UI
         if str(e) != last_error:
-            yield {"type": "error", "text": f"{type(e).__name__}: {e}"}
+            yield {"type": "error", "text": _explain_error(f"{type(e).__name__}: {e}")}
 
 
 @app.post("/api/ask")
