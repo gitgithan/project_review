@@ -360,13 +360,57 @@ async def review_pdf(review_id: str):
         log.exception("PDF rendering failed for review %s", review_id)
         raise HTTPException(
             status_code=500,
-            detail=f"Could not create the PDF ({type(e).__name__}: {e}). See the server log for details.",
+            detail=f"Could not create the PDF ({type(e).__name__}: {e}). "
+                   "Open /api/diagnostics/pdf for details and the server log for the traceback.",
         ) from e
     return Response(
         data,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{reviews.pdf_filename(meta)}"'},
     )
+
+
+@app.get("/api/diagnostics/pdf")
+def pdf_diagnostics():
+    """What the server uses to make PDFs, and the result of a test render.
+
+    Open http://localhost:8000/api/diagnostics/pdf when Download Review fails.
+    """
+    import importlib.metadata as md
+    import platform
+    import sys
+    import traceback
+
+    def version(pkg: str) -> str | None:
+        try:
+            return md.version(pkg)
+        except md.PackageNotFoundError:
+            return None
+
+    report = {
+        "python": sys.executable,
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "packages": {p: version(p) for p in ("markdown", "xhtml2pdf", "reportlab", "pypdf")},
+        "fonts": None,
+        "test_render": None,
+    }
+    try:
+        from app import pdf
+
+        report["fonts"] = pdf._fonts()
+        sample = "## Test\n| A | B |\n|---|---|\n| `code()` | x → y |\n\n- item\n  - nested"
+        for label, fonts in (("system_fonts", pdf._fonts()), ("builtin_fonts", None)):
+            try:
+                size = len(pdf._render(sample, "PDF test", "diagnostics", fonts))
+                report[label] = f"ok ({size} bytes)"
+            except Exception:
+                report[label] = traceback.format_exc()
+        report["test_render"] = "ok" if any(
+            str(report.get(k, "")).startswith("ok") for k in ("system_fonts", "builtin_fonts")) else "failed"
+    except Exception:
+        report["test_render"] = traceback.format_exc()
+    return report
 
 
 # ---------------------------------------------------------------- UI
